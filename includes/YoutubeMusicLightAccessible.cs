@@ -199,7 +199,7 @@ namespace YoutubeMusicLightAccessible
         private const uint EVENT_OBJECT_VALUECHANGE = 0x800E;
         private const int OBJID_CLIENT = -4;
         private const int CHILDID_SELF = 0;
-        private const string AppVersion = "3.12.1";
+        private const string AppVersion = "3.12.2";
         private const string AppUpdatedAt = "28/08/2026";
         private const string GitHubOwner = "diegovinicius95891-netizen";
         private const string GitHubRepo = "Youtube-Light";
@@ -4083,11 +4083,20 @@ namespace YoutubeMusicLightAccessible
                 {
                     string command = parts.Length > 0 ? parts[0] : "";
                     if (command == "pause-toggle")
+                    {
                         SendMpvCommand("{\"command\":\"pause-toggle\"}");
+                        SendPlayerMonitorCommand("{\"command\":\"pause-toggle\"}", false);
+                    }
                     else if (command == "seek")
+                    {
                         SendMpvCommand("{\"command\":\"seek\",\"delta\":" + parts[1] + "}");
+                        SendPlayerMonitorCommand("{\"command\":\"seek\",\"delta\":" + parts[1] + "}", false);
+                    }
                     else if (command == "seek-to")
+                    {
                         SendMpvCommand("{\"command\":\"seek-to\",\"seconds\":" + parts[1] + "}");
+                        SendPlayerMonitorCommand("{\"command\":\"seek-to\",\"seconds\":" + parts[1] + "}", false);
+                    }
                     else if (command == "add" && parts.Length >= 3 && parts[1] == "volume")
                     {
                         int delta = Int32.Parse(parts[2], System.Globalization.CultureInfo.InvariantCulture);
@@ -4095,6 +4104,7 @@ namespace YoutubeMusicLightAccessible
                         hasSavedVolume = true;
                         SaveConfig();
                         SendMpvCommand("{\"command\":\"set-volume\",\"volume\":" + savedVolume.ToString(System.Globalization.CultureInfo.InvariantCulture) + "}");
+                        SendPlayerMonitorCommand("{\"command\":\"set-volume\",\"volume\":" + savedVolume.ToString(System.Globalization.CultureInfo.InvariantCulture) + "}", false);
                     }
                 }
                 catch (Exception ex) { SetStatus("Não consegui controlar o MPV: " + ex.Message); }
