@@ -20,6 +20,32 @@ def as_int(value, default=0):
         return default
 
 
+def create_capture(microphone, output_device, volume, muted):
+    options = ["--aout=directsound", "--quiet"]
+    if output_device:
+        options.append("--directx-audio-device=" + output_device)
+    instance = vlc.Instance(*options)
+    if instance is None:
+        raise RuntimeError("nao consegui iniciar o libVLC")
+    player = instance.media_player_new()
+    media = instance.media_new("dshow://")
+    media.add_option(":dshow-vdev=none")
+    media.add_option(":dshow-adev=" + microphone)
+    media.add_option(":live-caching=80")
+    media.add_option(":dshow-caching=80")
+    player.set_media(media)
+    player.audio_set_volume(0 if muted else volume)
+    if output_device:
+        player.audio_output_device_set(None, output_device)
+    result = player.play()
+    if result == -1:
+        raise RuntimeError("VLC recusou o monitoramento do microfone")
+    time.sleep(0.35)
+    if output_device:
+        player.audio_output_device_set(None, output_device)
+    return instance, player, media
+
+
 def main():
     if len(sys.argv) < 2:
         out({"ok": False, "error": "microfone nao informado"})
@@ -31,34 +57,7 @@ def main():
     muted = len(sys.argv) > 4 and sys.argv[4].lower() == "true"
 
     try:
-        instance = vlc.Instance("--aout=directsound", "--quiet")
-        if instance is None:
-            out({"ok": False, "error": "nao consegui iniciar o libVLC"})
-            return 1
-
-        player = instance.media_player_new()
-        media = instance.media_new("dshow://")
-        media.add_option(":dshow-vdev=none")
-        media.add_option(":dshow-adev=" + microphone)
-        media.add_option(":live-caching=80")
-        media.add_option(":dshow-caching=80")
-        if output_device:
-            try:
-                media.add_option(":directx-audio-device=" + output_device)
-            except Exception:
-                pass
-        player.set_media(media)
-        player.audio_set_volume(0 if muted else volume)
-        result = player.play()
-        if result == -1:
-            out({"ok": False, "error": "VLC recusou o monitoramento do microfone"})
-            return 1
-        if output_device:
-            try:
-                player.audio_output_device_set(None, output_device)
-            except Exception:
-                pass
-        time.sleep(0.35)
+        instance, player, media = create_capture(microphone, output_device, volume, muted)
         out({"ok": True, "event": "ready"})
     except Exception as exc:
         out({"ok": False, "error": str(exc)})
@@ -83,14 +82,11 @@ def main():
                 output_device = command.get("id", "")
                 player.stop()
                 try:
-                    media.add_option(":directx-audio-device=" + output_device)
+                    player.release()
+                    instance.release()
                 except Exception:
                     pass
-                player.set_media(media)
-                player.audio_set_volume(0 if muted else volume)
-                player.play()
-                time.sleep(0.2)
-                player.audio_output_device_set(None, output_device)
+                instance, player, media = create_capture(microphone, output_device, volume, muted)
                 out({"ok": True})
             elif name == "stop":
                 player.stop()
