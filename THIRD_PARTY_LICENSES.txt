@@ -1,0 +1,54 @@
+Youtube Light - avisos de terceiros
+
+Este pacote inclui ou pode incluir componentes redistribuíveis de terceiros.
+As licenças completas dos componentes baixados devem ser preservadas dentro da pasta licenses quando disponíveis no pacote original.
+
+Componentes principais:
+
+- Python embeddable 3.12.10
+  Origem: https://www.python.org/downloads/windows/
+  Licença: Python Software Foundation License.
+
+- yt-dlp
+  Origem: https://github.com/yt-dlp/yt-dlp
+  Licença: Unlicense.
+
+- youtube-dl
+  Origem: https://github.com/ytdl-org/youtube-dl
+  Licença: Unlicense.
+
+- FFmpeg builds para Windows
+  Origem: https://github.com/BtbN/FFmpeg-Builds
+  Licença: conforme variante baixada pelo script de release. A variante padrão atual é GPL shared.
+
+- VLC media player / libVLC
+  Origem: https://www.videolan.org/vlc/download-windows.html
+  Licenças: VLC é distribuído sob licenças open-source variadas; veja os arquivos COPYING e notices incluídos no pacote do VLC.
+
+- MPV/libmpv para Windows
+  Origem: https://github.com/mpv-player/mpv e https://github.com/zhongfly/mpv-winbuild
+  Licença: GPL/LGPL conforme componentes do mpv e bibliotecas incluídas.
+
+- python-vlc
+  Origem: https://pypi.org/project/python-vlc/
+  Licença: LGPL.
+
+- python-mpv
+  Origem: https://pypi.org/project/python-mpv/
+  Licença: LGPL.
+
+- ytmusicapi
+  Origem: https://pypi.org/project/ytmusicapi/
+  Licença: MIT.
+
+- browser-cookie3
+  Origem: https://pypi.org/project/browser-cookie3/
+  Licença: LGPL.
+
+- websocket-client
+  Origem: https://pypi.org/project/websocket-client/
+  Licença: Apache-2.0.
+
+- NVDA Controller Client
+  Origem: NV Access / NVDA Controller Client.
+  Uso: integração de fala com NVDA.

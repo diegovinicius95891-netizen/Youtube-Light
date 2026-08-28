@@ -1,0 +1,42 @@
+# Dados pessoais e sessão
+config/
+downloads/
+cache_audio/
+login_profile*/
+browser.json
+cookies.txt
+oauth.json
+ytmusic_client.json
+headers_auth.*
+token*.json
+*.log
+*.tmp
+
+# Cache e artefatos Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Build C# e releases
+bin/
+obj/
+release/
+includes/dist/
+*.user
+*.suo
+
+# Runtimes portáteis gerados pelo build
+Library/
+librarys/py/Python/
+librarys/py/FFmpeg/
+librarys/py/VLC/
+librarys/py/MPV/
+librarys/py/Node/
+librarys/py/*.exe
+librarys/py/*.zip
+librarys/py/*.7z
+librarys/py/get-pip.py
+
+# Referências locais
+includes/keytune_ref/

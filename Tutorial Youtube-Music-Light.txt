@@ -1,0 +1,227 @@
+Tutorial rápido do Youtube Light
+
+1. Abrindo o programa
+
+Extraia o arquivo ZIP portátil em uma pasta qualquer.
+
+Depois, abra o arquivo YoutubeMusicLightAccessible.exe.
+
+Os dados do usuário ficam no AppData do Windows. O cache e arquivos temporários ficam no LocalAppData, para não sujar a pasta portátil do programa.
+
+A pasta librarys guarda os arquivos internos necessários para o programa funcionar. Na versão completa, ela traz Python, yt-dlp, youtube-dl, VLC, FFmpeg e MPV portáteis, sem precisar instalar dependências no Windows.
+
+2. Logar com Google
+
+Pressione Alt para abrir o menu principal e escolha a opção de login nas opções do aplicativo.
+
+Com as setas, escolha Logar com Google e pressione Enter.
+
+O programa identifica o navegador padrão do Windows e fala qual é.
+
+Entre na sua conta Google na janela aberta. Quando o YouTube Music abrir logado, volte para o aplicativo e clique OK.
+
+3. Navegação básica
+
+Pressione Alt para abrir o menu principal acessível. Ele abre com tudo recolhido.
+
+No menu principal, use seta para cima e para baixo para navegar pelos menus recolhidos.
+
+Use Enter ou seta direita para expandir um menu ou executar uma opção.
+
+Use seta esquerda para recolher.
+
+4. Feed e modos
+
+Por padrão, o Youtube Light abre no modo YouTube completo.
+
+No Feed inicial, as opções ficam organizadas por categorias.
+
+Pressione Enter em uma categoria para expandir ou recolher.
+
+As categorias principais são Buscar, Conta, Explorar e Biblioteca local.
+
+Em Buscar ficam Pesquisar no YouTube e Abrir link do YouTube.
+
+Em Conta ficam Recomendados do YouTube e Inscrições do YouTube.
+
+Em Explorar ficam Vídeos em alta, Playlists e Canais.
+
+Em Biblioteca local ficam Fila de reprodução, Favoritos locais, Histórico local e Downloads.
+
+Escolha uma opção com as setas e pressione Enter.
+
+Em Mais opções, use Mudar para YouTube Music quando quiser focar apenas nas funções de música.
+
+5. Buscar no YouTube completo
+
+Pressione Control P ou vá até o botão Busca.
+
+Primeiro aparece a caixa de pesquisa.
+
+Depois use Tab para escolher o filtro: Vídeos, Músicas, Playlists ou Canais.
+
+Depois use Tab para escolher o país, se quiser direcionar a busca para Brasil, Portugal, Estados Unidos e outros.
+
+Digite artista, música, canal, vídeo ou playlist e pressione Enter.
+
+Canais abrem dentro do aplicativo, carregando os vídeos recentes na lista de resultados.
+
+No menu Alt, em Busca, também existe Pesquisar últimos por país. Essa opção procura vídeos recentes ou músicas recentes do país escolhido.
+
+6. Atalhos do player
+
+Alt P, P ou Espaço: pausa ou retoma a música.
+
+Alt P também funciona como atalho global enquanto o aplicativo estiver aberto.
+
+Seta esquerda: volta 10 segundos.
+
+Seta direita: avança 10 segundos.
+
+Seta para cima: aumenta o volume.
+
+Seta para baixo: diminui o volume.
+
+Alt Shift seta para direita: avança a quantidade de segundos configurada.
+
+Alt Shift seta para esquerda: volta a quantidade de segundos configurada.
+
+Alt Shift seta para cima: aumenta o volume.
+
+Alt Shift seta para baixo: diminui o volume.
+
+Os atalhos do player podem funcionar globalmente enquanto o aplicativo estiver aberto, se a opção Atalhos globais do player estiver ligada nas configurações.
+
+Atalhos de letra pura, como N, L, V e T, funcionam só dentro do aplicativo. Para evitar conflito com o Windows, atalhos globais precisam usar combinação com Alt, Control ou Shift.
+
+V: anuncia o volume atual.
+
+T: anuncia o tempo atual e quanto falta para terminar.
+
+Shift T: anuncia o título e copia o título.
+
+L: copia o link da música.
+
+N: vai para a próxima música.
+
+B: volta para a música anterior.
+
+Control seta direita: vai para a próxima música.
+
+Control seta esquerda: volta para a música anterior.
+
+Em Mais opções, Configurações, Atalhos personalizados, você pode trocar os atalhos. Combinações como Alt P, Control Alt N e Shift L são aceitas.
+
+7. Reprodução, fila e rádio
+
+Quando uma música termina, o programa tenta tocar a próxima música da fila. Se a fila estiver vazia, toca a próxima música da lista de resultados.
+
+No menu de aplicações da música, use Tocar a seguir ou Adicionar ao fim da fila.
+
+Nas configurações, você pode ligar a Rádio infinita. Com ela ligada, quando a lista acabar o aplicativo tenta carregar uma rádio baseada na última música.
+
+O player principal é o VLC usando a biblioteca python-vlc. O aplicativo pode preparar áudio temporário primeiro para tocar localmente. Depois que a reprodução para ou o arquivo fica velho, o cache temporário é limpo automaticamente.
+
+Se o VLC não estiver no computador, o aplicativo tenta instalar automaticamente junto com as dependências.
+
+8. Player do computador
+
+Pressione Alt, abra Player do PC e escolha Abrir arquivo de mídia para tocar um arquivo do computador.
+
+Também dá para abrir uma pasta de mídia ou tocar uma pasta inteira.
+
+O aplicativo tenta tocar MP3, WAV, FLAC, M4A, AAC, OGG, OPUS, WMA, MP4, MKV, AVI, MOV, WEBM, WMV e outros formatos compatíveis com VLC.
+
+9. Favoritos e histórico locais
+
+No menu de aplicações da música, use Adicionar aos favoritos locais ou Remover dos favoritos locais.
+
+No Feed, abra Favoritos locais ou Histórico local para ver o que ficou salvo no aplicativo.
+
+O histórico local é limpo automaticamente a cada 10 minutos.
+
+10. Menu de música
+
+Na lista de resultados, selecione uma música.
+
+Pressione a tecla Aplicação ou Shift F10 para abrir o menu.
+
+Nesse menu, você pode curtir, descurtir, remover curtida, adicionar a uma playlist, tocar a seguir, adicionar à fila, baixar, copiar link, abrir rádio e gerenciar favoritos locais.
+
+Também pode abrir Descrição do vídeo, Comentários, Capítulos, Legendas e Vídeos relacionados, quando o YouTube disponibilizar esses dados.
+
+Na seção Player, a tecla Aplicação ou Shift F10 também abre ações da música que está tocando. Nesse menu existe a opção Trocar saída principal ou transmissão, para escolher para onde o áudio principal vai.
+
+O dispositivo de saída escolhido fica salvo e continua sendo usado quando trocar de vídeo.
+
+Para transmitir no TeamTalk usando Line 1 e ainda ouvir no fone, deixe a saída principal ou transmissão na Line 1. Depois ligue Retorno do player no fone e escolha seu fone ou alto-falante como dispositivo do retorno.
+
+11. Baixar músicas e links
+
+Na lista de resultados, selecione uma música.
+
+Pressione Aplicação ou Shift F10.
+
+Escolha Baixar e depois escolha o formato desejado.
+
+Em Mais opções, escolha Baixar por link para colar um link do YouTube ou YouTube Music e baixar sem pesquisar antes.
+
+Durante o download, o aplicativo fala a porcentagem.
+
+12. Pasta de downloads
+
+Em Mais opções, escolha Escolher pasta de downloads para definir onde as músicas serão salvas.
+
+Para voltar ao padrão, escolha Usar pasta padrão de downloads.
+
+13. Configurações
+
+Em Mais opções, escolha Configurações.
+
+Você pode ligar ou desligar anúncios automáticos do player, rádio infinita, reprodução automática, minimizar para bandeja do sistema, normalização simples de volume, modo padrão de busca, áudio e transmissão, atalhos globais do player, tocar por áudio temporário, notificações de vídeos novos, leitura automática das notificações, intervalo das notificações, volume boost, atalhos personalizados, segundos do Alt Shift setas, limpar fila e limpar histórico local.
+
+As notificações de vídeos novos verificam a página de inscrições da conta logada. Quando houver novidade, o aplicativo pode falar título, canal, duração e quando foi postado, se o YouTube entregar essas informações.
+
+Em Áudio e transmissão, você pode configurar saída principal ou transmissão, retorno do player no fone, dispositivo do retorno, volume do retorno, microfone, microfone ligado ou desligado, microfone mutado ou aberto, volume do microfone e modo de escuta.
+
+Os modos de escuta são: microfone desligado, vídeo e microfone, ou somente microfone.
+
+Microfone desligado não desliga o áudio do vídeo. Ele só desativa a escuta do microfone.
+
+Se quiser transmitir o microfone no TeamTalk sem ouvir o microfone no player, deixe Microfone no player desligado ou Microfone mutado ligado.
+
+Volume boost define o volume máximo. Use 100 para volume normal ou até 200 para reforço no VLC e MPV.
+
+Por padrão, os anúncios automáticos do player ficam desligados. Com eles desligados, ações como setas de volume, pausa, avançar e voltar só mudam o status. As teclas de consulta, como V, T, Shift T e L, continuam falando quando você pressiona.
+
+14. Conversor
+
+Pressione Alt e abra Conversor.
+
+Use Converter áudio ou vídeo para transformar arquivos entre formatos como mp3, m4a, opus, wav, flac, mp4, mkv e webm.
+
+Use Converter áudio para vídeo para gerar um MP4 a partir de um arquivo de áudio.
+
+Nessa opção, você pode escolher uma imagem do computador para aparecer no vídeo. Se não escolher imagem, o aplicativo usa fundo preto.
+
+O conversor usa FFmpeg portátil quando ele estiver no pacote completo.
+
+15. Atualizações e dependências
+
+O programa verifica dependências automaticamente ao abrir.
+
+Se houver algo para atualizar, ele avisa e mostra progresso.
+
+Ao baixar atualização do aplicativo, ele fala a porcentagem.
+
+16. Exportar e diagnóstico
+
+Em Mais opções, você pode exportar resultados em txt, m3u ou csv.
+
+Use Diagnóstico do aplicativo para testar Python, yt-dlp, VLC, Node, FFmpeg e login salvo.
+
+17. Dar ideias
+
+Em Mais opções, escolha Dar ideias.
+
+O programa abre o Gmail no navegador padrão para enviar uma mensagem com sugestões.

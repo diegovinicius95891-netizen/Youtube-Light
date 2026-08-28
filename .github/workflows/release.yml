@@ -1,0 +1,42 @@
+name: Build portable release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: version
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          if ($tag.StartsWith("v")) { $version = $tag.Substring(1) } else { $version = "3.11.0" }
+          "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Build portable package
+        shell: pwsh
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build_release.ps1 -Version "${{ steps.version.outputs.version }}"
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Youtube Light ${{ steps.version.outputs.version }}
+          body: |
+            Release portátil do Youtube Light.
+
+            Baixe o ZIP e confira a integridade com o arquivo `.sha256`.
+          files: |
+            release/Youtube-Light-Portable-${{ steps.version.outputs.version }}.zip
+            release/Youtube-Light-Portable-${{ steps.version.outputs.version }}.zip.sha256
