@@ -6663,10 +6663,11 @@ namespace YoutubeMusicLightAccessible
         {
             string cookieFile = Path.Combine(configDir, "cookies.txt");
             if (File.Exists(cookieFile)) return "--cookies \"" + EscapeArg(cookieFile) + "\" ";
-            if (Directory.Exists(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Microsoft", "Edge", "User Data")))
-                return "--cookies-from-browser edge ";
-            if (Directory.Exists(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Google", "Chrome", "User Data")))
-                return "--cookies-from-browser chrome ";
+            // Não tente descriptografar bancos do Chrome/Edge automaticamente.
+            // O DPAPI pode falhar quando o navegador está aberto, foi instalado
+            // por outro usuário ou quando a chave pertence a outro contexto.
+            // Vídeos públicos funcionam sem cookies e o login exportado continua
+            // sendo usado pelo arquivo local acima.
             return "";
         }
 
@@ -7431,6 +7432,7 @@ namespace YoutubeMusicLightAccessible
             if (String.IsNullOrWhiteSpace(message)) return false;
             return message.IndexOf("Could not copy Chrome cookie database", StringComparison.OrdinalIgnoreCase) >= 0 ||
                 message.IndexOf("Could not copy Edge cookie database", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                message.IndexOf("Failed to decrypt with DPAPI", StringComparison.OrdinalIgnoreCase) >= 0 ||
                 message.IndexOf("cookie database", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
