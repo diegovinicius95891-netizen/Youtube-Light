@@ -164,6 +164,7 @@ function Build-Package {
     New-Directory $PackageDir
     Copy-Item -LiteralPath (Join-Path $Root "YoutubeMusicLightAccessible.exe") -Destination $PackageDir
     Copy-Item -LiteralPath (Join-Path $Root "Tutorial Youtube-Music-Light.txt") -Destination (Join-Path $PackageDir "Tutorial Youtube-Music-Light.txt")
+    Copy-Item -LiteralPath (Join-Path $Root "CREDITOS.txt") -Destination (Join-Path $PackageDir "CREDITOS.txt")
     Copy-Item -LiteralPath (Join-Path $Root "THIRD_PARTY_LICENSES.txt") -Destination $PackageDir
     $librarySource = Join-Path $Root "librarys"
     $libraryTarget = Join-Path $PackageDir "librarys"
