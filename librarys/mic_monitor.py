@@ -18,9 +18,16 @@ def out(data):
 def log_error(message):
     # Mantem o diagnostico fora do stdout, que e usado pelo protocolo do app.
     try:
-        path = os.path.join(os.environ.get("YOUTUBE_LIGHT_CONFIG_DIR", "."), "microfone.log")
-        with open(path, "a", encoding="utf-8") as handle:
-            handle.write(time.strftime("%Y-%m-%d %H:%M:%S ") + message + "\n")
+        text = time.strftime("%Y-%m-%d %H:%M:%S ") + message + "\n"
+        paths = [os.path.join(os.environ.get("YOUTUBE_LIGHT_CONFIG_DIR", "."), "microfone.log"),
+                 os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "microfone.log")]
+        for path in dict.fromkeys(paths):
+            try:
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                with open(path, "a", encoding="utf-8") as handle:
+                    handle.write(text)
+            except Exception:
+                pass
     except Exception:
         pass
 
@@ -111,6 +118,17 @@ class Router:
 
 
 def main():
+    if len(sys.argv) >= 2 and sys.argv[1] in ("--list-devices", "--list-inputs"):
+        try:
+            if sys.argv[1] == "--list-inputs":
+                devices = [{"id": d.id, "name": d.name} for d in sc.all_microphones(include_loopback=False)]
+            else:
+                devices = [{"id": d.id, "name": d.name} for d in sc.all_speakers()]
+            out({"ok": True, "devices": devices})
+            return 0
+        except Exception as exc:
+            out({"ok": False, "error": str(exc)})
+            return 1
     if len(sys.argv) < 2:
         out({"ok": False, "error": "microfone nao informado"})
         return 1

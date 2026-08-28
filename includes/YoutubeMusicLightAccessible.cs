@@ -199,7 +199,7 @@ namespace YoutubeMusicLightAccessible
         private const uint EVENT_OBJECT_VALUECHANGE = 0x800E;
         private const int OBJID_CLIENT = -4;
         private const int CHILDID_SELF = 0;
-        private const string AppVersion = "3.13.2";
+        private const string AppVersion = "3.13.3";
         private const string AppUpdatedAt = "28/08/2026";
         private const string GitHubOwner = "diegovinicius95891-netizen";
         private const string GitHubRepo = "Youtube-Light";
@@ -6103,7 +6103,7 @@ namespace YoutubeMusicLightAccessible
             var result = new List<AudioDevice>();
             try
             {
-                string helper = Path.Combine(libraryDir, "vlc_player.py");
+                string helper = Path.Combine(libraryDir, "mic_monitor.py");
                 if (File.Exists(helper))
                 {
                     string output = RunProcess(GetPythonFileName(), "\"" + EscapeArg(helper) + "\" --list-devices", 15000, false);
@@ -6137,13 +6137,35 @@ namespace YoutubeMusicLightAccessible
 
         private List<string> ListInputDevices()
         {
+            try
+            {
+                string helper = Path.Combine(libraryDir, "mic_monitor.py");
+                if (File.Exists(helper))
+                {
+                    string output = RunProcess(GetPythonFileName(), "\"" + EscapeArg(helper) + "\" --list-inputs", 15000, false);
+                    var data = serializer.Deserialize<Dictionary<string, object>>(output.Trim());
+                    object devicesObj;
+                    if (data != null && data.TryGetValue("devices", out devicesObj) && devicesObj is IEnumerable)
+                    {
+                        var result = new List<string>();
+                        foreach (object obj in (IEnumerable)devicesObj)
+                        {
+                            var item = obj as Dictionary<string, object>;
+                            string name = item == null ? "" : GetString(item, "name", "");
+                            if (!String.IsNullOrWhiteSpace(name) && !result.Any(x => String.Equals(x, name, StringComparison.OrdinalIgnoreCase))) result.Add(name);
+                        }
+                        if (result.Count > 0) return result;
+                    }
+                }
+            }
+            catch { }
             string ffmpeg = GetPortableTool(Path.Combine("FFmpeg", "bin", "ffmpeg.exe"));
             if (String.IsNullOrWhiteSpace(ffmpeg)) ffmpeg = RunWhere("ffmpeg.exe");
             if (String.IsNullOrWhiteSpace(ffmpeg)) return new List<string>();
-            string output = RunProcessCombined(ffmpeg, "-hide_banner -list_devices true -f dshow -i dummy", 15000);
-            var result = new List<string>();
+            string ffmpegOutput = RunProcessCombined(ffmpeg, "-hide_banner -list_devices true -f dshow -i dummy", 15000);
+            var ffmpegResult = new List<string>();
             bool audio = false;
-            foreach (string line in output.Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries))
+            foreach (string line in ffmpegOutput.Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries))
             {
                 string text = line.Trim();
                 if (text.Contains("DirectShow audio devices")) { audio = true; continue; }
@@ -6154,10 +6176,10 @@ namespace YoutubeMusicLightAccessible
                 if (match.Success && !text.Contains("Alternative name"))
                 {
                     string name = match.Groups[1].Value;
-                    if (!result.Any(x => String.Equals(x, name, StringComparison.OrdinalIgnoreCase))) result.Add(name);
+                    if (!ffmpegResult.Any(x => String.Equals(x, name, StringComparison.OrdinalIgnoreCase))) ffmpegResult.Add(name);
                 }
             }
-            return result;
+            return ffmpegResult;
         }
 
         private string RunProcessCombined(string fileName, string arguments, int timeoutMs)
