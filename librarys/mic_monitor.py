@@ -49,6 +49,10 @@ def main():
                 player.audio_output_device_set("directsound", output_device)
             except Exception:
                 pass
+            try:
+                media.add_option(":directx-audio-device=" + output_device)
+            except Exception:
+                pass
         result = player.play()
         if result == -1:
             out({"ok": False, "error": "VLC recusou o monitoramento do microfone"})
@@ -81,8 +85,13 @@ def main():
                 out({"ok": True})
             elif name == "set-device":
                 output_device = command.get("id", "")
-                player.audio_output_device_set("directsound", output_device)
                 player.stop()
+                try:
+                    media.add_option(":directx-audio-device=" + output_device)
+                except Exception:
+                    pass
+                player.set_media(media)
+                player.audio_set_volume(0 if muted else volume)
                 player.play()
                 time.sleep(0.2)
                 player.audio_output_device_set("directsound", output_device)
