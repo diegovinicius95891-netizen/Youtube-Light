@@ -1,5 +1,5 @@
 param(
-    [string]$Version = "3.12.8"
+    [string]$Version = "3.12.9"
 )
 
 $ErrorActionPreference = "Stop"
@@ -80,7 +80,7 @@ function Prepare-Python {
     Download-File "https://bootstrap.pypa.io/get-pip.py" $getPip
     & $PythonExe -m pip --version | Out-Null
     if ($LASTEXITCODE -ne 0) { Invoke-Checked $PythonExe @($getPip) }
-    Invoke-Checked $PythonExe @("-m", "pip", "install", "--upgrade", "pip", "setuptools", "ytmusicapi", "browser-cookie3", "websocket-client", "python-vlc", "python-mpv", "pycryptodomex")
+    Invoke-Checked $PythonExe @("-m", "pip", "install", "--upgrade", "pip", "setuptools", "ytmusicapi", "browser-cookie3", "websocket-client", "python-vlc", "python-mpv", "pycryptodomex", "soundcard")
 }
 
 function Prepare-Tools {

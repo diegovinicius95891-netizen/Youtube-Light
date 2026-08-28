@@ -1,11 +1,11 @@
 import json
 import sys
-import time
+import threading
 
 try:
-    import vlc
+    import soundcard as sc
 except Exception as exc:
-    print(json.dumps({"ok": False, "error": "python-vlc nao esta instalado: " + str(exc)}), flush=True)
+    print(json.dumps({"ok": False, "error": "soundcard nao esta instalado: " + str(exc)}), flush=True)
     sys.exit(1)
 
 
@@ -13,87 +13,104 @@ def out(data):
     print(json.dumps(data, ensure_ascii=False), flush=True)
 
 
-def as_int(value, default=0):
+def number(value, default=70):
     try:
         return int(float(value))
     except Exception:
         return default
 
 
-def create_capture(microphone, output_device, volume, muted):
-    options = ["--aout=directsound", "--quiet"]
-    if output_device:
-        options.append("--directx-audio-device=" + output_device)
-    instance = vlc.Instance(*options)
-    if instance is None:
-        raise RuntimeError("nao consegui iniciar o libVLC")
-    player = instance.media_player_new()
-    media = instance.media_new("dshow://")
-    media.add_option(":dshow-vdev=none")
-    media.add_option(":dshow-adev=" + microphone)
-    media.add_option(":live-caching=80")
-    media.add_option(":dshow-caching=80")
-    player.set_media(media)
-    player.audio_set_volume(0 if muted else volume)
-    if output_device:
-        player.audio_output_device_set(None, output_device)
-    result = player.play()
-    if result == -1:
-        raise RuntimeError("VLC recusou o monitoramento do microfone")
-    time.sleep(0.35)
-    if output_device:
-        player.audio_output_device_set(None, output_device)
-    return instance, player, media
+class Router:
+    def __init__(self, microphone, output, volume, muted):
+        self.microphone = microphone
+        self.output = output
+        self.volume = max(0, min(200, volume))
+        self.muted = muted
+        self.stop_event = threading.Event()
+        self.restart_event = threading.Event()
+        self.lock = threading.Lock()
+        self.thread = threading.Thread(target=self.loop, daemon=True)
+
+    def find_mic(self):
+        devices = sc.all_microphones(include_loopback=True)
+        for device in devices:
+            if device.name.lower() == self.microphone.lower() or self.microphone.lower() in device.name.lower():
+                return device
+        raise RuntimeError("microfone nao encontrado: " + self.microphone)
+
+    def find_output(self):
+        if not self.output:
+            return sc.default_speaker()
+        for device in sc.all_speakers():
+            if device.id == self.output or device.name == self.output or self.output.lower() in device.name.lower():
+                return device
+        raise RuntimeError("saida nao encontrada: " + self.output)
+
+    def loop(self):
+        while not self.stop_event.is_set():
+            try:
+                microphone = self.find_mic()
+                speaker = self.find_output()
+                with microphone.recorder(samplerate=48000, blocksize=1024) as recorder:
+                    with speaker.player(samplerate=48000, blocksize=1024) as player:
+                        out({"ok": True, "event": "ready", "microphone": microphone.name, "output": speaker.name})
+                        while not self.stop_event.is_set() and not self.restart_event.is_set():
+                            data = recorder.record(numframes=1024)
+                            with self.lock:
+                                muted = self.muted
+                                volume = self.volume
+                            if muted:
+                                data[:] = 0
+                            elif volume != 100:
+                                data *= volume / 100.0
+                            player.play(data)
+            except Exception as exc:
+                out({"ok": False, "error": str(exc)})
+                self.stop_event.wait(0.5)
+            self.restart_event.clear()
+
+    def start(self):
+        self.thread.start()
+
+    def set_output(self, output):
+        with self.lock:
+            self.output = output
+        self.restart_event.set()
+
+    def stop(self):
+        self.stop_event.set()
+        self.restart_event.set()
+        self.thread.join(timeout=2)
 
 
 def main():
     if len(sys.argv) < 2:
         out({"ok": False, "error": "microfone nao informado"})
         return 1
-
-    microphone = sys.argv[1]
-    output_device = sys.argv[2] if len(sys.argv) > 2 else ""
-    volume = max(0, min(200, as_int(sys.argv[3], 70) if len(sys.argv) > 3 else 70))
-    muted = len(sys.argv) > 4 and sys.argv[4].lower() == "true"
-
-    try:
-        instance, player, media = create_capture(microphone, output_device, volume, muted)
-        out({"ok": True, "event": "ready"})
-    except Exception as exc:
-        out({"ok": False, "error": str(exc)})
-        return 1
-
+    router = Router(sys.argv[1], sys.argv[2] if len(sys.argv) > 2 else "", number(sys.argv[3]) if len(sys.argv) > 3 else 70, len(sys.argv) > 4 and sys.argv[4].lower() == "true")
+    router.start()
     for line in sys.stdin:
-        line = line.strip()
-        if not line:
+        if not line.strip():
             continue
         try:
             command = json.loads(line)
             name = command.get("command", "")
-            if name == "set-volume":
-                volume = max(0, min(200, as_int(command.get("volume", volume), volume)))
-                player.audio_set_volume(0 if muted else volume)
+            if name == "set-device":
+                router.set_output(str(command.get("id", "")))
+                out({"ok": True})
+            elif name == "set-volume":
+                with router.lock:
+                    router.volume = max(0, min(200, number(command.get("volume", router.volume))))
                 out({"ok": True})
             elif name == "set-muted":
-                muted = bool(command.get("muted", muted))
-                player.audio_set_volume(0 if muted else volume)
-                out({"ok": True})
-            elif name == "set-device":
-                output_device = command.get("id", "")
-                player.stop()
-                try:
-                    player.release()
-                    instance.release()
-                except Exception:
-                    pass
-                instance, player, media = create_capture(microphone, output_device, volume, muted)
+                with router.lock:
+                    router.muted = bool(command.get("muted", router.muted))
                 out({"ok": True})
             elif name == "stop":
-                player.stop()
+                router.stop()
                 break
         except Exception as exc:
             out({"ok": False, "error": str(exc)})
-
     return 0
 
 
