@@ -1,6 +1,8 @@
 import json
+import os
 import sys
 import threading
+import time
 
 try:
     import soundcard as sc
@@ -11,6 +13,16 @@ except Exception as exc:
 
 def out(data):
     print(json.dumps(data, ensure_ascii=False), flush=True)
+
+
+def log_error(message):
+    # Mantem o diagnostico fora do stdout, que e usado pelo protocolo do app.
+    try:
+        path = os.path.join(os.environ.get("YOUTUBE_LIGHT_CONFIG_DIR", "."), "microfone.log")
+        with open(path, "a", encoding="utf-8") as handle:
+            handle.write(time.strftime("%Y-%m-%d %H:%M:%S ") + message + "\n")
+    except Exception:
+        pass
 
 
 def number(value, default=70):
@@ -53,13 +65,18 @@ class Router:
             try:
                 microphone = self.find_mic()
                 speaker = self.find_output()
-                with microphone.recorder(samplerate=48000, blocksize=1024) as recorder:
-                    with speaker.player(samplerate=48000, blocksize=1024) as player:
+                mic_channels = max(1, int(getattr(microphone, "channels", 1)))
+                speaker_channels = max(1, int(getattr(speaker, "channels", 2)))
+                with microphone.recorder(samplerate=48000, channels=mic_channels, blocksize=1024) as recorder:
+                    with speaker.player(samplerate=48000, channels=speaker_channels, blocksize=1024) as player:
                         if not self.ready_sent:
                             out({"ok": True, "event": "ready", "microphone": microphone.name, "output": speaker.name})
                             self.ready_sent = True
+                        self.error_sent = False
                         while not self.stop_event.is_set() and not self.restart_event.is_set():
                             data = recorder.record(numframes=1024).copy()
+                            if getattr(data, "size", 0) == 0:
+                                continue
                             with self.lock:
                                 muted = self.muted
                                 volume = self.volume
@@ -75,6 +92,7 @@ class Router:
                 if not self.error_sent:
                     out({"ok": False, "error": str(exc)})
                     self.error_sent = True
+                log_error("Falha na captura/reproducao: " + repr(exc))
                 self.stop_event.wait(0.5)
             self.restart_event.clear()
 
