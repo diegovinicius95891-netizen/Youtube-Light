@@ -31,7 +31,7 @@ def main():
     muted = len(sys.argv) > 4 and sys.argv[4].lower() == "true"
 
     try:
-        instance = vlc.Instance("--quiet")
+        instance = vlc.Instance("--aout=directsound", "--quiet")
         if instance is None:
             out({"ok": False, "error": "nao consegui iniciar o libVLC"})
             return 1
@@ -46,13 +46,18 @@ def main():
         player.audio_set_volume(0 if muted else volume)
         if output_device:
             try:
-                player.audio_output_device_set(None, output_device)
+                player.audio_output_device_set("directsound", output_device)
             except Exception:
                 pass
         result = player.play()
         if result == -1:
             out({"ok": False, "error": "VLC recusou o monitoramento do microfone"})
             return 1
+        if output_device:
+            try:
+                player.audio_output_device_set("directsound", output_device)
+            except Exception:
+                pass
         time.sleep(0.35)
         out({"ok": True, "event": "ready"})
     except Exception as exc:
@@ -76,7 +81,11 @@ def main():
                 out({"ok": True})
             elif name == "set-device":
                 output_device = command.get("id", "")
-                player.audio_output_device_set(None, output_device)
+                player.audio_output_device_set("directsound", output_device)
+                player.stop()
+                player.play()
+                time.sleep(0.2)
+                player.audio_output_device_set("directsound", output_device)
                 out({"ok": True})
             elif name == "stop":
                 player.stop()
