@@ -199,7 +199,7 @@ namespace YoutubeMusicLightAccessible
         private const uint EVENT_OBJECT_VALUECHANGE = 0x800E;
         private const int OBJID_CLIENT = -4;
         private const int CHILDID_SELF = 0;
-        private const string AppVersion = "3.12.0";
+        private const string AppVersion = "3.12.1";
         private const string AppUpdatedAt = "28/08/2026";
         private const string GitHubOwner = "diegovinicius95891-netizen";
         private const string GitHubRepo = "Youtube-Light";
@@ -6044,7 +6044,16 @@ namespace YoutubeMusicLightAccessible
 
         private void ChooseMicOutputDevice()
         {
-            List<AudioDevice> devices = GetActiveAudioDevices();
+            List<AudioDevice> devices;
+            try
+            {
+                devices = GetActiveAudioDevices();
+            }
+            catch (Exception ex)
+            {
+                AnnounceStatus("Não consegui listar as saídas para a captura do microfone. Verifique se o player está disponível. Detalhes: " + ShortError(ex.Message));
+                return;
+            }
             if (devices.Count == 0)
             {
                 AnnounceStatus("Não encontrei saídas de áudio. Conecte a Line 1, fone ou alto-falante e tente novamente.");

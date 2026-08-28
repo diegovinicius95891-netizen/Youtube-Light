@@ -1,5 +1,5 @@
 param(
-    [string]$Version = "3.12.0"
+    [string]$Version = "3.12.1"
 )
 
 $ErrorActionPreference = "Stop"
@@ -92,9 +92,11 @@ function Prepare-Tools {
     Download-File "https://get.videolan.org/vlc/3.0.23/win64/vlc-3.0.23-win64.zip" $vlcZip
     Expand-ZipRuntime $vlcZip (Join-Path $RuntimeDir "VLC") "libvlc.dll"
 
-    $ffAsset = Get-GitHubAsset "BtbN" "FFmpeg-Builds" "^ffmpeg-master-latest-win64-gpl-shared\.zip$"
-    $ffZip = Join-Path $CacheDir $ffAsset.name
-    Download-File $ffAsset.browser_download_url $ffZip
+    $ffZip = Join-Path $CacheDir "ffmpeg-master-latest-win64-gpl-shared.zip"
+    if (-not (Test-Path -LiteralPath $ffZip)) {
+        $ffAsset = Get-GitHubAsset "BtbN" "FFmpeg-Builds" "^ffmpeg-master-latest-win64-gpl-shared\.zip$"
+        Download-File $ffAsset.browser_download_url $ffZip
+    }
     $ffDest = Join-Path $RuntimeDir "FFmpeg\bin"
     Expand-ZipRuntime $ffZip $ffDest "ffmpeg.exe"
 
