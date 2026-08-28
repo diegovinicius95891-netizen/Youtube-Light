@@ -199,7 +199,7 @@ namespace YoutubeMusicLightAccessible
         private const uint EVENT_OBJECT_VALUECHANGE = 0x800E;
         private const int OBJID_CLIENT = -4;
         private const int CHILDID_SELF = 0;
-        private const string AppVersion = "3.12.2";
+        private const string AppVersion = "3.12.3";
         private const string AppUpdatedAt = "28/08/2026";
         private const string GitHubOwner = "diegovinicius95891-netizen";
         private const string GitHubRepo = "Youtube-Light";
@@ -6058,11 +6058,16 @@ namespace YoutubeMusicLightAccessible
             try
             {
                 devices = GetActiveAudioDevices();
+                if (devices.Count == 0) devices = GetWindowsAudioDevices();
             }
             catch (Exception ex)
             {
-                AnnounceStatus("Não consegui listar as saídas para a captura do microfone. Verifique se o player está disponível. Detalhes: " + ShortError(ex.Message));
-                return;
+                devices = GetWindowsAudioDevices();
+                if (devices.Count == 0)
+                {
+                    AnnounceStatus("Não consegui listar as saídas para a captura do microfone. Detalhes: " + ShortError(ex.Message));
+                    return;
+                }
             }
             if (devices.Count == 0)
             {
@@ -6091,6 +6096,23 @@ namespace YoutubeMusicLightAccessible
                 if (micMonitorEnabled) RestartMicMonitor();
                 AnnounceStatus("Saída do microfone definida para " + chosen + ".");
             }
+        }
+
+        private List<AudioDevice> GetWindowsAudioDevices()
+        {
+            var result = new List<AudioDevice>();
+            try
+            {
+                string output = RunProcess("powershell.exe", "-NoProfile -ExecutionPolicy Bypass -Command \"Get-CimInstance Win32_SoundDevice | Where-Object { $_.Status -eq 'OK' } | Select-Object -ExpandProperty Name\"", 15000, false);
+                foreach (string line in output.Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries))
+                {
+                    string name = CleanDeviceName(line.Trim());
+                    if (!String.IsNullOrWhiteSpace(name) && !result.Any(d => String.Equals(d.Name, name, StringComparison.OrdinalIgnoreCase)))
+                        result.Add(new AudioDevice { Id = name, Name = name });
+                }
+            }
+            catch { }
+            return result;
         }
 
         private List<string> ListInputDevices()

@@ -1,5 +1,5 @@
 param(
-    [string]$Version = "3.12.2"
+    [string]$Version = "3.12.3"
 )
 
 $ErrorActionPreference = "Stop"
@@ -100,9 +100,12 @@ function Prepare-Tools {
     $ffDest = Join-Path $RuntimeDir "FFmpeg\bin"
     Expand-ZipRuntime $ffZip $ffDest "ffmpeg.exe"
 
-    $mpvAsset = Get-GitHubAsset "mpv-player" "mpv" "^mpv-v[0-9.]+-x86_64-pc-windows-msvc\.zip$"
-    $mpvArchive = Join-Path $CacheDir $mpvAsset.name
-    Download-File $mpvAsset.browser_download_url $mpvArchive
+    $mpvArchive = Get-ChildItem -LiteralPath $CacheDir -File -Filter "mpv-v*-x86_64-pc-windows-msvc.zip" | Select-Object -First 1 | Select-Object -ExpandProperty FullName
+    if (-not $mpvArchive) {
+        $mpvAsset = Get-GitHubAsset "mpv-player" "mpv" "^mpv-v[0-9.]+-x86_64-pc-windows-msvc\.zip$"
+        $mpvArchive = Join-Path $CacheDir $mpvAsset.name
+        Download-File $mpvAsset.browser_download_url $mpvArchive
+    }
     $mpvTemp = Join-Path $env:TEMP ("youtube-light-mpv-" + [guid]::NewGuid().ToString("N"))
     New-Directory $mpvTemp
     Expand-Archive -LiteralPath $mpvArchive -DestinationPath $mpvTemp -Force
@@ -113,9 +116,12 @@ function Prepare-Tools {
     Copy-Item -LiteralPath $mpvExe.Directory.FullName -Destination $mpvDest -Recurse
     Remove-Item -LiteralPath $mpvTemp -Recurse -Force
 
-    $libMpvAsset = Get-GitHubAsset "zhongfly" "mpv-winbuild" "^mpv-dev-x86_64-\d{8}-git-[0-9a-f]+\.7z$"
-    $libMpvArchive = Join-Path $CacheDir $libMpvAsset.name
-    Download-File $libMpvAsset.browser_download_url $libMpvArchive
+    $libMpvArchive = Get-ChildItem -LiteralPath $CacheDir -File -Filter "mpv-dev-x86_64-*.7z" | Select-Object -First 1 | Select-Object -ExpandProperty FullName
+    if (-not $libMpvArchive) {
+        $libMpvAsset = Get-GitHubAsset "zhongfly" "mpv-winbuild" "^mpv-dev-x86_64-\d{8}-git-[0-9a-f]+\.7z$"
+        $libMpvArchive = Join-Path $CacheDir $libMpvAsset.name
+        Download-File $libMpvAsset.browser_download_url $libMpvArchive
+    }
     $seven = Join-Path $CacheDir "7zr.exe"
     Download-File "https://www.7-zip.org/a/7zr.exe" $seven
     $libMpvTemp = Join-Path $env:TEMP ("youtube-light-libmpv-" + [guid]::NewGuid().ToString("N"))
