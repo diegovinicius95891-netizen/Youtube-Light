@@ -153,6 +153,8 @@ namespace YoutubeMusicLightAccessible
         private bool playerMonitorEnabled = false;
         private int playerMonitorVolume = 70;
         private string selectedInputDeviceName = "";
+        private string selectedMicOutputDeviceId = "";
+        private string selectedMicOutputDeviceName = "";
         private bool micMonitorEnabled = false;
         private bool micMuted = true;
         private int micVolume = 70;
@@ -197,7 +199,7 @@ namespace YoutubeMusicLightAccessible
         private const uint EVENT_OBJECT_VALUECHANGE = 0x800E;
         private const int OBJID_CLIENT = -4;
         private const int CHILDID_SELF = 0;
-        private const string AppVersion = "3.11.0";
+        private const string AppVersion = "3.12.0";
         private const string AppUpdatedAt = "28/08/2026";
         private const string GitHubOwner = "diegovinicius95891-netizen";
         private const string GitHubRepo = "Youtube-Light";
@@ -5887,6 +5889,7 @@ namespace YoutubeMusicLightAccessible
                     list.Items.Add("Dispositivo do retorno do player: " + (String.IsNullOrWhiteSpace(selectedMonitorOutputDeviceName) ? "nenhum selecionado" : CleanDeviceName(selectedMonitorOutputDeviceName)));
                     list.Items.Add("Volume do retorno do player: " + playerMonitorVolume + " por cento");
                     list.Items.Add("Dispositivo de entrada: " + (String.IsNullOrWhiteSpace(selectedInputDeviceName) ? "nenhum microfone selecionado" : selectedInputDeviceName));
+                    list.Items.Add("Saída da captura do microfone: " + (String.IsNullOrWhiteSpace(selectedMicOutputDeviceName) ? "automático do Windows" : CleanDeviceName(selectedMicOutputDeviceName)));
                     list.Items.Add("Microfone no player: " + (micMonitorEnabled ? "ligado" : "desligado"));
                     list.Items.Add("Microfone mutado: " + (micMuted ? "sim" : "não"));
                     list.Items.Add("Volume do microfone: " + micVolume + " por cento");
@@ -5905,6 +5908,7 @@ namespace YoutubeMusicLightAccessible
                     else if (item.StartsWith("Dispositivo do retorno")) ChooseMonitorOutputDevice();
                     else if (item.StartsWith("Volume do retorno")) ConfigurePlayerMonitorVolume();
                     else if (item.StartsWith("Dispositivo de entrada")) ChooseInputDevice();
+                    else if (item.StartsWith("Saída da captura")) ChooseMicOutputDevice();
                     else if (item.StartsWith("Microfone no player")) ToggleMicMonitor();
                     else if (item.StartsWith("Microfone mutado")) ToggleMicMute();
                     else if (item.StartsWith("Volume do microfone")) ConfigureMicVolume();
@@ -6035,6 +6039,38 @@ namespace YoutubeMusicLightAccessible
                 SaveConfig();
                 if (micMonitorEnabled) RestartMicMonitor();
                 AnnounceStatus("Microfone selecionado: " + selectedInputDeviceName + ".");
+            }
+        }
+
+        private void ChooseMicOutputDevice()
+        {
+            List<AudioDevice> devices = GetActiveAudioDevices();
+            if (devices.Count == 0)
+            {
+                AnnounceStatus("Não encontrei saídas de áudio. Conecte a Line 1, fone ou alto-falante e tente novamente.");
+                return;
+            }
+            using (var form = new Form())
+            {
+                form.Text = "Saída da captura do microfone";
+                form.Size = new Size(640, 420);
+                form.StartPosition = FormStartPosition.CenterParent;
+                var list = new ListBox { Dock = DockStyle.Fill, AccessibleName = "Saída da captura do microfone" };
+                list.AccessibleDescription = "Escolha Line 1, um fone ou outro alto-falante para receber o microfone.";
+                foreach (AudioDevice device in devices) list.Items.Add(device);
+                int selected = devices.FindIndex(d => String.Equals(d.Id, selectedMicOutputDeviceId, StringComparison.OrdinalIgnoreCase));
+                list.SelectedIndex = selected >= 0 ? selected : 0;
+                form.Controls.Add(list);
+                var ok = new Button { Text = "Usar esta saída", Dock = DockStyle.Bottom, DialogResult = DialogResult.OK };
+                form.Controls.Add(ok);
+                form.AcceptButton = ok;
+                if (form.ShowDialog(this) != DialogResult.OK || !(list.SelectedItem is AudioDevice)) return;
+                AudioDevice chosen = (AudioDevice)list.SelectedItem;
+                selectedMicOutputDeviceId = chosen.Id;
+                selectedMicOutputDeviceName = chosen.ToString();
+                SaveConfig();
+                if (micMonitorEnabled) RestartMicMonitor();
+                AnnounceStatus("Saída do microfone definida para " + chosen + ".");
             }
         }
 
@@ -6183,7 +6219,7 @@ namespace YoutubeMusicLightAccessible
                 AnnounceStatus("Arquivo do monitor de microfone não encontrado.");
                 return;
             }
-            string args = "\"" + EscapeArg(helper) + "\" \"" + EscapeArg(selectedInputDeviceName) + "\" \"" + EscapeArg(selectedOutputDeviceId) + "\" " +
+            string args = "\"" + EscapeArg(helper) + "\" \"" + EscapeArg(selectedInputDeviceName) + "\" \"" + EscapeArg(selectedMicOutputDeviceId) + "\" " +
                 micVolume.ToString(System.Globalization.CultureInfo.InvariantCulture) + " " + micMuted.ToString().ToLowerInvariant();
             var psi = new ProcessStartInfo(GetPythonFileName(), args);
             psi.UseShellExecute = false;
@@ -6255,7 +6291,7 @@ namespace YoutubeMusicLightAccessible
 
         private void ApplySelectedOutputDeviceToMicMonitor()
         {
-            SendMicMonitorCommand("{\"command\":\"set-device\",\"id\":\"" + JsonEscape(selectedOutputDeviceId) + "\"}", true);
+            SendMicMonitorCommand("{\"command\":\"set-device\",\"id\":\"" + JsonEscape(selectedMicOutputDeviceId) + "\"}", true);
         }
 
         private void ApplyMicMute()
@@ -6785,6 +6821,14 @@ namespace YoutubeMusicLightAccessible
                     {
                         selectedInputDeviceName = parts[1].Trim();
                     }
+                    else if (parts[0].Trim().Equals("selectedMicOutputDeviceId", StringComparison.OrdinalIgnoreCase))
+                    {
+                        selectedMicOutputDeviceId = parts[1].Trim();
+                    }
+                    else if (parts[0].Trim().Equals("selectedMicOutputDeviceName", StringComparison.OrdinalIgnoreCase))
+                    {
+                        selectedMicOutputDeviceName = CleanDeviceName(parts[1].Trim());
+                    }
                     else if (parts[0].Trim().Equals("selectedMonitorOutputDeviceId", StringComparison.OrdinalIgnoreCase))
                     {
                         selectedMonitorOutputDeviceId = parts[1].Trim();
@@ -6901,6 +6945,8 @@ namespace YoutubeMusicLightAccessible
                 builder.AppendLine("selectedOutputDeviceId=" + selectedOutputDeviceId);
                 builder.AppendLine("selectedOutputDeviceName=" + CleanDeviceName(selectedOutputDeviceName));
                 builder.AppendLine("selectedInputDeviceName=" + selectedInputDeviceName);
+                builder.AppendLine("selectedMicOutputDeviceId=" + selectedMicOutputDeviceId);
+                builder.AppendLine("selectedMicOutputDeviceName=" + CleanDeviceName(selectedMicOutputDeviceName));
                 builder.AppendLine("selectedMonitorOutputDeviceId=" + selectedMonitorOutputDeviceId);
                 builder.AppendLine("selectedMonitorOutputDeviceName=" + CleanDeviceName(selectedMonitorOutputDeviceName));
                 builder.AppendLine("playerMonitorEnabled=" + playerMonitorEnabled.ToString().ToLowerInvariant());

@@ -1,0 +1,9 @@
+CRÉDITOS DO YOUTUBE LIGHT
+
+Idealizadores do aplicativo:
+
+Diego Vinicius Carmo Grando
+Antoniel Soáres
+
+Agradecimento especial ao Antoniel Soáres pela ajuda decisiva para concluir o
+projeto e resolver os problemas do player.
