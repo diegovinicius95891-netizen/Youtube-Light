@@ -67,6 +67,15 @@ def list_audio_devices(player):
 
 
 def main():
+    if len(sys.argv) >= 2 and sys.argv[1] == "--list-devices":
+        try:
+            instance = vlc.Instance("--quiet")
+            player = instance.media_player_new()
+            out({"ok": True, "devices": list_audio_devices(player)})
+            return 0
+        except Exception as exc:
+            out({"ok": False, "error": str(exc)})
+            return 1
     if len(sys.argv) < 2:
         out({"ok": False, "error": "arquivo de audio nao informado"})
         return 1

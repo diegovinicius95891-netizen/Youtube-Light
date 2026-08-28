@@ -199,7 +199,7 @@ namespace YoutubeMusicLightAccessible
         private const uint EVENT_OBJECT_VALUECHANGE = 0x800E;
         private const int OBJID_CLIENT = -4;
         private const int CHILDID_SELF = 0;
-        private const string AppVersion = "3.12.3";
+        private const string AppVersion = "3.12.4";
         private const string AppUpdatedAt = "28/08/2026";
         private const string GitHubOwner = "diegovinicius95891-netizen";
         private const string GitHubRepo = "Youtube-Light";
@@ -6103,8 +6103,28 @@ namespace YoutubeMusicLightAccessible
             var result = new List<AudioDevice>();
             try
             {
-                string output = RunProcess("powershell.exe", "-NoProfile -ExecutionPolicy Bypass -Command \"Get-CimInstance Win32_SoundDevice | Where-Object { $_.Status -eq 'OK' } | Select-Object -ExpandProperty Name\"", 15000, false);
-                foreach (string line in output.Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries))
+                string helper = Path.Combine(libraryDir, "vlc_player.py");
+                if (File.Exists(helper))
+                {
+                    string output = RunProcess(GetPythonFileName(), "\"" + EscapeArg(helper) + "\" --list-devices", 15000, false);
+                    var data = serializer.Deserialize<Dictionary<string, object>>(output.Trim());
+                    object devicesObj;
+                    if (data != null && data.TryGetValue("devices", out devicesObj) && devicesObj is IEnumerable)
+                    {
+                        foreach (object obj in (IEnumerable)devicesObj)
+                        {
+                            var item = obj as Dictionary<string, object>;
+                            if (item == null) continue;
+                            string id = GetString(item, "id", "");
+                            string name = CleanDeviceName(GetString(item, "name", id));
+                            if (!String.IsNullOrWhiteSpace(id) || !String.IsNullOrWhiteSpace(name))
+                                result.Add(new AudioDevice { Id = id, Name = name });
+                        }
+                    }
+                    if (result.Count > 0) return result;
+                }
+                string outputFallback = RunProcess("powershell.exe", "-NoProfile -ExecutionPolicy Bypass -Command \"Get-CimInstance Win32_SoundDevice | Where-Object { $_.Status -eq 'OK' } | Select-Object -ExpandProperty Name\"", 15000, false);
+                foreach (string line in outputFallback.Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries))
                 {
                     string name = CleanDeviceName(line.Trim());
                     if (!String.IsNullOrWhiteSpace(name) && !result.Any(d => String.Equals(d.Name, name, StringComparison.OrdinalIgnoreCase)))
