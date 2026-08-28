@@ -30,6 +30,7 @@ class Router:
         self.restart_event = threading.Event()
         self.lock = threading.Lock()
         self.ready_sent = False
+        self.error_sent = False
         self.thread = threading.Thread(target=self.loop, daemon=True)
 
     def find_mic(self):
@@ -58,18 +59,22 @@ class Router:
                             out({"ok": True, "event": "ready", "microphone": microphone.name, "output": speaker.name})
                             self.ready_sent = True
                         while not self.stop_event.is_set() and not self.restart_event.is_set():
-                            data = recorder.record(numframes=1024)
+                            data = recorder.record(numframes=1024).copy()
                             with self.lock:
                                 muted = self.muted
                                 volume = self.volume
                             if muted:
                                 data[:] = 0
                             elif volume != 100:
-                                data *= volume / 100.0
+                                data = data * (volume / 100.0)
+                            data = data.clip(-1.0, 1.0)
                             player.play(data)
             except Exception as exc:
                 # Reabre a captura em caso de falha transitória sem encher o
                 # canal de comandos com mensagens que o aplicativo não pediu.
+                if not self.error_sent:
+                    out({"ok": False, "error": str(exc)})
+                    self.error_sent = True
                 self.stop_event.wait(0.5)
             self.restart_event.clear()
 
