@@ -199,7 +199,7 @@ namespace YoutubeMusicLightAccessible
         private const uint EVENT_OBJECT_VALUECHANGE = 0x800E;
         private const int OBJID_CLIENT = -4;
         private const int CHILDID_SELF = 0;
-        private const string AppVersion = "3.12.9";
+        private const string AppVersion = "3.13.0";
         private const string AppUpdatedAt = "28/08/2026";
         private const string GitHubOwner = "diegovinicius95891-netizen";
         private const string GitHubRepo = "Youtube-Light";
