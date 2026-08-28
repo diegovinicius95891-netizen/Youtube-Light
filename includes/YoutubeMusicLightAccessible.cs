@@ -8,6 +8,7 @@ using System.IO;
 using System.Linq;
 using System.Net;
 using System.Runtime.InteropServices;
+using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -16,6 +17,8 @@ using System.Threading.Tasks;
 using System.Web.Script.Serialization;
 using System.Windows.Forms;
 using Microsoft.Win32;
+using NAudio.CoreAudioApi;
+using NAudio.Wave;
 
 namespace YoutubeMusicLightAccessible
 {
@@ -50,6 +53,213 @@ namespace YoutubeMusicLightAccessible
         {
             return String.IsNullOrWhiteSpace(Name) ? Id : Name;
         }
+    }
+
+    internal sealed class NativeMicRouter : IDisposable
+    {
+        private readonly object sync = new object();
+        private readonly string logPath;
+        private readonly string fallbackLogPath;
+        private WasapiCapture capture;
+        private WasapiOut output;
+        private BufferedWaveProvider buffer;
+        private bool stopping;
+        private bool restartPending;
+        private int volume;
+        private bool muted;
+        private string inputName;
+        private string outputId;
+
+        public NativeMicRouter(string logPath, string fallbackLogPath)
+        {
+            this.logPath = logPath;
+            this.fallbackLogPath = fallbackLogPath;
+        }
+
+        public bool IsRunning
+        {
+            get { lock (sync) return capture != null && output != null && !stopping; }
+        }
+
+        public void Start(string microphoneName, string speakerId, int initialVolume, bool initialMuted)
+        {
+            lock (sync)
+            {
+                StopLocked();
+                stopping = false;
+                inputName = microphoneName ?? "";
+                outputId = speakerId ?? "";
+                volume = Math.Max(0, Math.Min(200, initialVolume));
+                muted = initialMuted;
+                StartLocked();
+            }
+        }
+
+        private void StartLocked()
+        {
+            var enumerator = new MMDeviceEnumerator();
+            MMDevice microphone = FindDevice(enumerator, DataFlow.Capture, inputName);
+            MMDevice speaker = FindDevice(enumerator, DataFlow.Render, outputId);
+            if (microphone == null) throw new InvalidOperationException("Microfone não encontrado: " + inputName);
+            if (speaker == null) speaker = enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
+
+            capture = new WasapiCapture(microphone, false, 50);
+            buffer = new BufferedWaveProvider(capture.WaveFormat);
+            buffer.BufferDuration = TimeSpan.FromSeconds(3);
+            buffer.DiscardOnBufferOverflow = true;
+            // Sem dados por alguns milissegundos, entrega silêncio em vez de
+            // sinalizar fim do fluxo. Assim o dispositivo permanece aberto.
+            buffer.ReadFully = true;
+            output = new WasapiOut(speaker, AudioClientShareMode.Shared, true, 50);
+            output.Init(buffer);
+            capture.DataAvailable += CaptureDataAvailable;
+            capture.RecordingStopped += CaptureStopped;
+            output.PlaybackStopped += OutputStopped;
+            output.Play();
+            capture.StartRecording();
+            Log("Iniciado. Entrada=" + microphone.FriendlyName + "; saída=" + speaker.FriendlyName + "; formato=" + capture.WaveFormat);
+        }
+
+        private static MMDevice FindDevice(MMDeviceEnumerator enumerator, DataFlow flow, string idOrName)
+        {
+            if (String.IsNullOrWhiteSpace(idOrName)) return null;
+            string wanted = idOrName.Trim();
+            foreach (MMDevice device in enumerator.EnumerateAudioEndPoints(flow, DeviceState.Active))
+            {
+                if (String.Equals(device.ID, wanted, StringComparison.OrdinalIgnoreCase) ||
+                    String.Equals(device.FriendlyName, wanted, StringComparison.OrdinalIgnoreCase) ||
+                    device.FriendlyName.IndexOf(wanted, StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    wanted.IndexOf(device.FriendlyName, StringComparison.OrdinalIgnoreCase) >= 0)
+                    return device;
+            }
+            return null;
+        }
+
+        private void CaptureDataAvailable(object sender, WaveInEventArgs e)
+        {
+            BufferedWaveProvider target = buffer;
+            WasapiCapture source = capture;
+            if (stopping || target == null || source == null || e.BytesRecorded <= 0) return;
+            byte[] data = new byte[e.BytesRecorded];
+            Buffer.BlockCopy(e.Buffer, 0, data, 0, e.BytesRecorded);
+            ApplyGain(data, e.BytesRecorded, source.WaveFormat, muted ? 0 : volume);
+            try { target.AddSamples(data, 0, data.Length); }
+            catch (Exception ex) { Log("Falha ao alimentar a saída: " + ex); }
+        }
+
+        private static void ApplyGain(byte[] data, int count, WaveFormat format, int percent)
+        {
+            if (percent == 100) return;
+            double gain = percent / 100.0;
+            if (format.Encoding == WaveFormatEncoding.IeeeFloat && format.BitsPerSample == 32)
+            {
+                for (int i = 0; i + 3 < count; i += 4)
+                {
+                    float sample = BitConverter.ToSingle(data, i);
+                    byte[] scaled = BitConverter.GetBytes((float)Math.Max(-1, Math.Min(1, sample * gain)));
+                    Buffer.BlockCopy(scaled, 0, data, i, 4);
+                }
+            }
+            else if (format.BitsPerSample == 16)
+            {
+                for (int i = 0; i + 1 < count; i += 2)
+                {
+                    short sample = BitConverter.ToInt16(data, i);
+                    short scaled = (short)Math.Max(Int16.MinValue, Math.Min(Int16.MaxValue, sample * gain));
+                    data[i] = (byte)(scaled & 255);
+                    data[i + 1] = (byte)((scaled >> 8) & 255);
+                }
+            }
+            else if (percent == 0)
+            {
+                Array.Clear(data, 0, count);
+            }
+        }
+
+        private void CaptureStopped(object sender, StoppedEventArgs e)
+        {
+            if (e.Exception != null) Log("A captura parou: " + e.Exception);
+            ScheduleRestart();
+        }
+
+        private void OutputStopped(object sender, StoppedEventArgs e)
+        {
+            if (e.Exception != null) Log("A saída parou: " + e.Exception);
+            ScheduleRestart();
+        }
+
+        private void ScheduleRestart()
+        {
+            lock (sync)
+            {
+                if (stopping || restartPending) return;
+                restartPending = true;
+            }
+            ThreadPool.QueueUserWorkItem(delegate
+            {
+                Thread.Sleep(300);
+                lock (sync)
+                {
+                    restartPending = false;
+                    if (stopping) return;
+                    try
+                    {
+                        StopLocked();
+                        stopping = false;
+                        StartLocked();
+                        Log("Fluxo reiniciado automaticamente.");
+                    }
+                    catch (Exception ex) { Log("Falha ao reiniciar: " + ex); }
+                }
+            });
+        }
+
+        public void SetVolume(int value) { lock (sync) volume = Math.Max(0, Math.Min(200, value)); }
+        public void SetMuted(bool value) { lock (sync) muted = value; }
+
+        public void Stop()
+        {
+            lock (sync)
+            {
+                stopping = true;
+                StopLocked();
+            }
+        }
+
+        private void StopLocked()
+        {
+            WasapiCapture oldCapture = capture;
+            WasapiOut oldOutput = output;
+            capture = null;
+            output = null;
+            buffer = null;
+            if (oldCapture != null)
+            {
+                try { oldCapture.DataAvailable -= CaptureDataAvailable; oldCapture.RecordingStopped -= CaptureStopped; oldCapture.StopRecording(); } catch { }
+                try { oldCapture.Dispose(); } catch { }
+            }
+            if (oldOutput != null)
+            {
+                try { oldOutput.PlaybackStopped -= OutputStopped; oldOutput.Stop(); } catch { }
+                try { oldOutput.Dispose(); } catch { }
+            }
+        }
+
+        private void Log(string text)
+        {
+            foreach (string path in new[] { logPath, fallbackLogPath })
+            {
+                try
+                {
+                    if (String.IsNullOrWhiteSpace(path)) continue;
+                    Directory.CreateDirectory(Path.GetDirectoryName(path));
+                    File.AppendAllText(path, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss ") + text + Environment.NewLine, new UTF8Encoding(false));
+                }
+                catch { }
+            }
+        }
+
+        public void Dispose() { Stop(); }
     }
 
     public class GithubReleaseUpdate
@@ -126,9 +336,8 @@ namespace YoutubeMusicLightAccessible
         private StreamWriter playerMonitorInput;
         private readonly object playerMonitorLock = new object();
         private string currentMediaPath = "";
-        private Process micMonitorProcess;
-        private StreamWriter micMonitorInput;
-        private readonly object micMonitorLock = new object();
+        private Process micRoutingEngineProcess;
+        private StreamWriter micRoutingEngineInput;
         private Process mpvProcess;
         private StreamWriter mpvInput;
         private readonly object mpvLock = new object();
@@ -155,6 +364,8 @@ namespace YoutubeMusicLightAccessible
         private string selectedInputDeviceName = "";
         private string selectedMicOutputDeviceId = "";
         private string selectedMicOutputDeviceName = "";
+        private string selectedMicReturnDeviceId = "";
+        private string selectedMicReturnDeviceName = "";
         private bool micMonitorEnabled = false;
         private bool micMuted = true;
         private int micVolume = 70;
@@ -199,7 +410,7 @@ namespace YoutubeMusicLightAccessible
         private const uint EVENT_OBJECT_VALUECHANGE = 0x800E;
         private const int OBJID_CLIENT = -4;
         private const int CHILDID_SELF = 0;
-        private const string AppVersion = "3.13.3";
+        private const string AppVersion = "3.13.4";
         private const string AppUpdatedAt = "28/08/2026";
         private const string GitHubOwner = "diegovinicius95891-netizen";
         private const string GitHubRepo = "Youtube-Light";
@@ -5899,7 +6110,8 @@ namespace YoutubeMusicLightAccessible
                     list.Items.Add("Dispositivo do retorno do player: " + (String.IsNullOrWhiteSpace(selectedMonitorOutputDeviceName) ? "nenhum selecionado" : CleanDeviceName(selectedMonitorOutputDeviceName)));
                     list.Items.Add("Volume do retorno do player: " + playerMonitorVolume + " por cento");
                     list.Items.Add("Dispositivo de entrada: " + (String.IsNullOrWhiteSpace(selectedInputDeviceName) ? "nenhum microfone selecionado" : selectedInputDeviceName));
-                    list.Items.Add("Saída da captura do microfone: " + (String.IsNullOrWhiteSpace(selectedMicOutputDeviceName) ? "automático do Windows" : CleanDeviceName(selectedMicOutputDeviceName)));
+                    list.Items.Add("Saída do microfone para transmissão: " + (String.IsNullOrWhiteSpace(selectedMicOutputDeviceName) ? "nenhuma selecionada" : CleanDeviceName(selectedMicOutputDeviceName)));
+                    list.Items.Add("Retorno do microfone no fone: " + (String.IsNullOrWhiteSpace(selectedMicReturnDeviceName) ? "desligado" : CleanDeviceName(selectedMicReturnDeviceName)));
                     list.Items.Add("Microfone no player: " + (micMonitorEnabled ? "ligado" : "desligado"));
                     list.Items.Add("Microfone mutado: " + (micMuted ? "sim" : "não"));
                     list.Items.Add("Volume do microfone: " + micVolume + " por cento");
@@ -5918,7 +6130,8 @@ namespace YoutubeMusicLightAccessible
                     else if (item.StartsWith("Dispositivo do retorno")) ChooseMonitorOutputDevice();
                     else if (item.StartsWith("Volume do retorno")) ConfigurePlayerMonitorVolume();
                     else if (item.StartsWith("Dispositivo de entrada")) ChooseInputDevice();
-                    else if (item.StartsWith("Saída da captura")) ChooseMicOutputDevice();
+                    else if (item.StartsWith("Saída do microfone")) ChooseMicOutputDevice();
+                    else if (item.StartsWith("Retorno do microfone")) ChooseMicReturnDevice();
                     else if (item.StartsWith("Microfone no player")) ToggleMicMonitor();
                     else if (item.StartsWith("Microfone mutado")) ToggleMicMute();
                     else if (item.StartsWith("Volume do microfone")) ConfigureMicVolume();
@@ -6057,7 +6270,7 @@ namespace YoutubeMusicLightAccessible
             List<AudioDevice> devices;
             try
             {
-                devices = GetActiveAudioDevices();
+                devices = GetMicRoutingDevices(false);
                 if (devices.Count == 0) devices = GetWindowsAudioDevices();
             }
             catch (Exception ex)
@@ -6098,6 +6311,44 @@ namespace YoutubeMusicLightAccessible
             }
         }
 
+        private void ChooseMicReturnDevice()
+        {
+            List<AudioDevice> devices = GetMicRoutingDevices(false);
+            if (devices.Count == 0)
+            {
+                AnnounceStatus("Não encontrei dispositivos para o retorno do microfone.");
+                return;
+            }
+            using (var form = new Form())
+            {
+                form.Text = "Retorno do microfone no fone";
+                form.Size = new Size(640, 420);
+                form.StartPosition = FormStartPosition.CenterParent;
+                var list = new ListBox { Dock = DockStyle.Fill, AccessibleName = "Retorno do microfone no fone" };
+                list.AccessibleDescription = "Escolha onde ouvir seu microfone sem usar o modo de escuta do Windows.";
+                list.Items.Add(new AudioDevice { Id = "-1", Name = "Sem retorno do microfone" });
+                foreach (AudioDevice device in devices) list.Items.Add(device);
+                int selected = -1;
+                for (int i = 0; i < list.Items.Count; i++)
+                {
+                    AudioDevice device = list.Items[i] as AudioDevice;
+                    if (device != null && String.Equals(device.Id, selectedMicReturnDeviceId, StringComparison.OrdinalIgnoreCase)) { selected = i; break; }
+                }
+                list.SelectedIndex = selected >= 0 ? selected : 0;
+                form.Controls.Add(list);
+                var ok = new Button { Text = "Usar este retorno", Dock = DockStyle.Bottom, DialogResult = DialogResult.OK };
+                form.Controls.Add(ok);
+                form.AcceptButton = ok;
+                if (form.ShowDialog(this) != DialogResult.OK || !(list.SelectedItem is AudioDevice)) return;
+                AudioDevice chosen = (AudioDevice)list.SelectedItem;
+                selectedMicReturnDeviceId = chosen.Id;
+                selectedMicReturnDeviceName = chosen.Id == "-1" ? "" : chosen.Name;
+                SaveConfig();
+                if (micMonitorEnabled) RestartMicMonitor();
+                AnnounceStatus(chosen.Id == "-1" ? "Retorno do microfone desligado." : "Retorno do microfone definido para " + chosen.Name + ".");
+            }
+        }
+
         private List<AudioDevice> GetWindowsAudioDevices()
         {
             var result = new List<AudioDevice>();
@@ -6135,8 +6386,45 @@ namespace YoutubeMusicLightAccessible
             return result;
         }
 
+        private string GetMicRoutingEnginePath()
+        {
+            return Path.Combine(libraryDir, "audio", "Placasom.exe");
+        }
+
+        private List<AudioDevice> GetMicRoutingDevices(bool inputs)
+        {
+            var result = new List<AudioDevice>();
+            string engine = GetMicRoutingEnginePath();
+            if (!File.Exists(engine)) return result;
+            string output = RunProcess(engine, "--list", 15000, false);
+            bool readingInputs = false;
+            foreach (string raw in output.Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                string line = raw.Trim();
+                if (line.Contains("--- ENTRADAS ---")) { readingInputs = true; continue; }
+                if (line.Contains("--- SAIDAS ---")) { readingInputs = false; continue; }
+                if (readingInputs != inputs) continue;
+                Match match = Regex.Match(line, @"^\[(-?\d+)\]\s*(.+)$");
+                if (!match.Success) continue;
+                result.Add(new AudioDevice { Id = match.Groups[1].Value, Name = CleanDeviceName(match.Groups[2].Value.Trim()) });
+            }
+            return result;
+        }
+
+        private int ResolveMicRoutingDeviceIndex(bool input, string id, string name)
+        {
+            List<AudioDevice> devices = GetMicRoutingDevices(input);
+            AudioDevice selected = devices.FirstOrDefault(d => String.Equals(d.Id, id, StringComparison.OrdinalIgnoreCase));
+            if (selected == null && !String.IsNullOrWhiteSpace(name))
+                selected = devices.FirstOrDefault(d => String.Equals(CleanDeviceName(d.Name), CleanDeviceName(name), StringComparison.OrdinalIgnoreCase));
+            int index;
+            return selected != null && Int32.TryParse(selected.Id, out index) ? index : -1;
+        }
+
         private List<string> ListInputDevices()
         {
+            List<AudioDevice> nativeInputs = GetMicRoutingDevices(true);
+            if (nativeInputs.Count > 0) return nativeInputs.Select(d => d.Name).ToList();
             try
             {
                 string helper = Path.Combine(libraryDir, "mic_monitor.py");
@@ -6294,45 +6582,53 @@ namespace YoutubeMusicLightAccessible
                 SaveConfig();
                 return;
             }
+            if (String.IsNullOrWhiteSpace(selectedMicOutputDeviceId))
+            {
+                AnnounceStatus("Escolha a saída do microfone para transmissão, por exemplo Line 1.");
+                return;
+            }
             if (audioListenMode == "video") audioListenMode = "both";
             StopMicMonitor();
-            string helper = Path.Combine(libraryDir, "mic_monitor.py");
-            if (!File.Exists(helper))
-            {
-                AnnounceStatus("Arquivo do monitor de microfone não encontrado.");
-                return;
-            }
-            string args = "\"" + EscapeArg(helper) + "\" \"" + EscapeArg(selectedInputDeviceName) + "\" \"" + EscapeArg(selectedMicOutputDeviceId) + "\" " +
-                micVolume.ToString(System.Globalization.CultureInfo.InvariantCulture) + " " + micMuted.ToString().ToLowerInvariant();
-            var psi = new ProcessStartInfo(GetPythonFileName(), args);
-            psi.UseShellExecute = false;
-            psi.RedirectStandardInput = true;
-            psi.RedirectStandardOutput = true;
-            psi.RedirectStandardError = true;
-            psi.CreateNoWindow = true;
-            psi.StandardOutputEncoding = Encoding.UTF8;
-            psi.StandardErrorEncoding = Encoding.UTF8;
             try
             {
-                psi.EnvironmentVariables["YOUTUBE_LIGHT_CONFIG_DIR"] = configDir;
-                psi.EnvironmentVariables["YOUTUBE_LIGHT_LIBRARY_DIR"] = libraryDir;
-                string oldPath = psi.EnvironmentVariables["PATH"] ?? "";
-                string vlcDir = FindVlcDirectory();
-                string prefix = GetRuntimePathPrefix();
-                if (!String.IsNullOrWhiteSpace(vlcDir)) prefix = vlcDir + ";" + prefix;
-                if (!String.IsNullOrWhiteSpace(prefix)) psi.EnvironmentVariables["PATH"] = prefix + ";" + oldPath;
+                string engine = GetMicRoutingEnginePath();
+                if (!File.Exists(engine)) throw new FileNotFoundException("Motor de áudio não encontrado.", engine);
+                int micIndex = ResolveMicRoutingDeviceIndex(true, "", selectedInputDeviceName);
+                int transmissionIndex = ResolveMicRoutingDeviceIndex(false, selectedMicOutputDeviceId, selectedMicOutputDeviceName);
+                int returnIndex = ResolveMicRoutingDeviceIndex(false, selectedMicReturnDeviceId, selectedMicReturnDeviceName);
+                if (micIndex < 0) throw new Exception("O microfone selecionado não está disponível.");
+                if (transmissionIndex < 0) throw new Exception("A saída de transmissão selecionada não está disponível.");
+                if (String.IsNullOrWhiteSpace(selectedMicReturnDeviceId)) returnIndex = -1;
+                string initialMicVolume = (micMuted ? 0.0 : micVolume / 100.0).ToString("0.00", System.Globalization.CultureInfo.InvariantCulture);
+                string args = micIndex + " " + transmissionIndex + " " + returnIndex + " " + initialMicVolume + " 0.00 0";
+                var psi = new ProcessStartInfo(engine, args);
+                psi.UseShellExecute = false;
+                psi.CreateNoWindow = true;
+                psi.RedirectStandardInput = true;
+                psi.RedirectStandardOutput = true;
+                psi.RedirectStandardError = true;
+                psi.StandardOutputEncoding = Encoding.UTF8;
+                psi.StandardErrorEncoding = Encoding.UTF8;
+                micRoutingEngineProcess = new Process();
+                micRoutingEngineProcess.StartInfo = psi;
+                micRoutingEngineProcess.OutputDataReceived += delegate(object sender, DataReceivedEventArgs e) { if (e.Data != null) AppendMicLog(e.Data); };
+                micRoutingEngineProcess.ErrorDataReceived += delegate(object sender, DataReceivedEventArgs e) { if (e.Data != null) AppendMicLog("ERRO: " + e.Data); };
+                micRoutingEngineProcess.Start();
+                micRoutingEngineInput = micRoutingEngineProcess.StandardInput;
+                micRoutingEngineInput.AutoFlush = true;
+                micRoutingEngineProcess.BeginOutputReadLine();
+                micRoutingEngineProcess.BeginErrorReadLine();
+                if (micRoutingEngineProcess.WaitForExit(700))
+                    throw new Exception("O motor de áudio encerrou ao iniciar.");
+                AppendMicLog("Roteamento ativo: microfone -> " + selectedMicOutputDeviceName + "; retorno -> " + (returnIndex < 0 ? "desligado" : selectedMicReturnDeviceName));
             }
-            catch { }
-            micMonitorProcess = Process.Start(psi);
-            micMonitorInput = micMonitorProcess.StandardInput;
-            string ready = ReadMicMonitorLine(5000);
-            if (String.IsNullOrWhiteSpace(ready) || !ready.Contains("\"ok\": true"))
+            catch (Exception ex)
             {
                 StopMicMonitor();
-                AnnounceStatus("Não consegui ativar o microfone no player.");
+                try { File.AppendAllText(Path.Combine(baseDir, "microfone.log"), DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss ") + ex + Environment.NewLine, new UTF8Encoding(false)); } catch { }
+                AnnounceStatus("Não consegui ativar o microfone. Detalhes: " + ShortError(ex.Message));
                 return;
             }
-            ApplyListenModeToPlayers();
         }
 
         private void RestartMicMonitor()
@@ -6343,48 +6639,38 @@ namespace YoutubeMusicLightAccessible
 
         private void StopMicMonitor()
         {
-            try { SendMicMonitorCommand("{\"command\":\"stop\"}", false); } catch { }
+            try { if (micRoutingEngineInput != null) { micRoutingEngineInput.WriteLine("stop"); micRoutingEngineInput.Flush(); } } catch { }
             try
             {
-                if (micMonitorProcess != null && !micMonitorProcess.HasExited)
-                    micMonitorProcess.Kill();
+                if (micRoutingEngineProcess != null && !micRoutingEngineProcess.HasExited && !micRoutingEngineProcess.WaitForExit(2500))
+                    micRoutingEngineProcess.Kill();
             }
             catch { }
-            micMonitorProcess = null;
-            micMonitorInput = null;
+            try { if (micRoutingEngineProcess != null) micRoutingEngineProcess.Dispose(); } catch { }
+            micRoutingEngineProcess = null;
+            micRoutingEngineInput = null;
         }
 
-        private string ReadMicMonitorLine(int timeoutMs)
+        private void AppendMicLog(string text)
         {
-            if (micMonitorProcess == null) return "";
-            var task = Task.Factory.StartNew(delegate { return micMonitorProcess.StandardOutput.ReadLine(); });
-            return task.Wait(timeoutMs) ? (task.Result ?? "") : "";
-        }
-
-        private void SendMicMonitorCommand(string json, bool waitReply)
-        {
-            lock (micMonitorLock)
-            {
-                if (micMonitorProcess == null || micMonitorProcess.HasExited || micMonitorInput == null) return;
-                micMonitorInput.WriteLine(json);
-                micMonitorInput.Flush();
-                if (waitReply) ReadMicMonitorLine(1000);
-            }
+            string line = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss ") + text + Environment.NewLine;
+            try { File.AppendAllText(Path.Combine(configDir, "microfone.log"), line, new UTF8Encoding(false)); } catch { }
+            try { File.AppendAllText(Path.Combine(baseDir, "microfone.log"), line, new UTF8Encoding(false)); } catch { }
         }
 
         private void ApplySelectedOutputDeviceToMicMonitor()
         {
-            SendMicMonitorCommand("{\"command\":\"set-device\",\"id\":\"" + JsonEscape(selectedMicOutputDeviceId) + "\"}", true);
+            if (micMonitorEnabled) RestartMicMonitor();
         }
 
         private void ApplyMicMute()
         {
-            SendMicMonitorCommand("{\"command\":\"set-muted\",\"muted\":" + micMuted.ToString().ToLowerInvariant() + "}", true);
+            try { if (micRoutingEngineInput != null) micRoutingEngineInput.WriteLine("mic:" + (micMuted ? "0" : micVolume.ToString(System.Globalization.CultureInfo.InvariantCulture))); } catch { }
         }
 
         private void ApplyMicVolume()
         {
-            SendMicMonitorCommand("{\"command\":\"set-volume\",\"volume\":" + micVolume.ToString(System.Globalization.CultureInfo.InvariantCulture) + "}", true);
+            try { if (micRoutingEngineInput != null) micRoutingEngineInput.WriteLine("mic:" + (micMuted ? "0" : micVolume.ToString(System.Globalization.CultureInfo.InvariantCulture))); } catch { }
         }
 
         private void ApplyListenModeToPlayers()
@@ -6394,7 +6680,7 @@ namespace YoutubeMusicLightAccessible
                 StopMicMonitor();
                 return;
             }
-            if (micMonitorEnabled && (micMonitorProcess == null || micMonitorProcess.HasExited))
+            if (micMonitorEnabled && (micRoutingEngineProcess == null || micRoutingEngineProcess.HasExited))
                 StartMicMonitor();
         }
 
@@ -6912,6 +7198,14 @@ namespace YoutubeMusicLightAccessible
                     {
                         selectedMicOutputDeviceName = CleanDeviceName(parts[1].Trim());
                     }
+                    else if (parts[0].Trim().Equals("selectedMicReturnDeviceId", StringComparison.OrdinalIgnoreCase))
+                    {
+                        selectedMicReturnDeviceId = parts[1].Trim();
+                    }
+                    else if (parts[0].Trim().Equals("selectedMicReturnDeviceName", StringComparison.OrdinalIgnoreCase))
+                    {
+                        selectedMicReturnDeviceName = CleanDeviceName(parts[1].Trim());
+                    }
                     else if (parts[0].Trim().Equals("selectedMonitorOutputDeviceId", StringComparison.OrdinalIgnoreCase))
                     {
                         selectedMonitorOutputDeviceId = parts[1].Trim();
@@ -7030,6 +7324,8 @@ namespace YoutubeMusicLightAccessible
                 builder.AppendLine("selectedInputDeviceName=" + selectedInputDeviceName);
                 builder.AppendLine("selectedMicOutputDeviceId=" + selectedMicOutputDeviceId);
                 builder.AppendLine("selectedMicOutputDeviceName=" + CleanDeviceName(selectedMicOutputDeviceName));
+                builder.AppendLine("selectedMicReturnDeviceId=" + selectedMicReturnDeviceId);
+                builder.AppendLine("selectedMicReturnDeviceName=" + CleanDeviceName(selectedMicReturnDeviceName));
                 builder.AppendLine("selectedMonitorOutputDeviceId=" + selectedMonitorOutputDeviceId);
                 builder.AppendLine("selectedMonitorOutputDeviceName=" + CleanDeviceName(selectedMonitorOutputDeviceName));
                 builder.AppendLine("playerMonitorEnabled=" + playerMonitorEnabled.ToString().ToLowerInvariant());
@@ -7934,6 +8230,16 @@ namespace YoutubeMusicLightAccessible
         [STAThread]
         public static void Main()
         {
+            AppDomain.CurrentDomain.AssemblyResolve += delegate(object sender, ResolveEventArgs args)
+            {
+                try
+                {
+                    if (!String.Equals(new AssemblyName(args.Name).Name, "NAudio", StringComparison.OrdinalIgnoreCase)) return null;
+                    string path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "librarys", "dotnet", "NAudio.dll");
+                    return File.Exists(path) ? Assembly.LoadFrom(path) : null;
+                }
+                catch { return null; }
+            };
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             bool createdNew;

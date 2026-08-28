@@ -1,5 +1,5 @@
 param(
-    [string]$Version = "3.13.3"
+    [string]$Version = "3.13.4"
 )
 
 $ErrorActionPreference = "Stop"
@@ -165,6 +165,9 @@ function Smoke-Test($Base) {
     Invoke-Checked (Join-Path $rt "FFmpeg\bin\ffplay.exe") @("-version")
     Invoke-Checked $py @("-c", "import os; os.add_dll_directory(r'$rt\MPV'); import mpv; p=mpv.MPV(video=False,ytdl=False,input_default_bindings=False,input_vo_keyboard=False,osc=False); print('mpv ok')")
     Invoke-Checked $py @("-c", "import vlc; i=vlc.Instance('--no-video','--quiet'); print('vlc ok' if i else 'vlc fail')")
+    $audioEngine = Join-Path $Base "librarys\audio\Placasom.exe"
+    if (-not (Test-Path -LiteralPath $audioEngine)) { throw "Motor de roteamento de áudio ausente" }
+    Invoke-Checked $audioEngine @("--list")
 }
 
 function Build-Package {
