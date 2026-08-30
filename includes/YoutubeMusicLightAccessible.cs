@@ -394,6 +394,10 @@ namespace YoutubeMusicLightAccessible
         private int currentIndex = -1;
         private bool playbackStarted = false;
         private bool suppressAutoAdvance = false;
+        private readonly object playbackRequestLock = new object();
+        private int playbackRequestSerial = 0;
+        private bool playbackRequestPending = false;
+        private string playbackRequestKey = "";
         private DateTime playbackStartedAt = DateTime.MinValue;
         private System.Windows.Forms.Timer playbackTimer;
         private System.Windows.Forms.Timer historyCleanupTimer;
@@ -410,8 +414,8 @@ namespace YoutubeMusicLightAccessible
         private const uint EVENT_OBJECT_VALUECHANGE = 0x800E;
         private const int OBJID_CLIENT = -4;
         private const int CHILDID_SELF = 0;
-        private const string AppVersion = "3.13.4";
-        private const string AppUpdatedAt = "28/08/2026";
+        private const string AppVersion = "3.13.5";
+        private const string AppUpdatedAt = "29/08/2026";
         private const string GitHubOwner = "diegovinicius95891-netizen";
         private const string GitHubRepo = "Youtube-Light";
         private const string GitHubLatestReleaseApiUrl = "https://api.github.com/repos/" + GitHubOwner + "/" + GitHubRepo + "/releases/latest";
@@ -718,6 +722,56 @@ namespace YoutubeMusicLightAccessible
             if (playerList != null) { playerList.TabStop = true; playerList.TabIndex = 1; }
             if (mainMessageLabel != null) mainMessageLabel.TabStop = false;
             if (statusLabel != null) statusLabel.TabStop = false;
+        }
+
+        private void ClosePlayerAndReturnToResults()
+        {
+            StopPlayback();
+            if (playerGroup != null) { playerGroup.Visible = false; playerGroup.TabStop = false; }
+            if (playerList != null) playerList.TabStop = false;
+            ShowResultsOnly();
+            SetStatus("Player fechado. Você voltou para a lista de resultados.");
+            if (resultsList != null) resultsList.Focus();
+        }
+
+        private void ConfirmLeaveResults()
+        {
+            StopPlayback();
+            if (playerGroup != null) { playerGroup.Visible = false; playerGroup.TabStop = false; }
+            if (playerList != null) playerList.TabStop = false;
+            using (var form = new Form())
+            {
+                form.Text = "Resultados da pesquisa";
+                form.Size = new Size(560, 260);
+                form.StartPosition = FormStartPosition.CenterParent;
+                var panel = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(12), RowCount = 2, ColumnCount = 1 };
+                var label = new Label { AutoSize = true, Text = "Você deseja voltar ao menu principal ou continuar pesquisando mais?", AccessibleName = "Você deseja voltar ao menu principal ou continuar pesquisando mais?" };
+                var list = new ListBox { Dock = DockStyle.Fill, AccessibleName = "Escolha o que deseja fazer" };
+                list.Items.Add("Voltar ao menu principal");
+                list.Items.Add("Continuar pesquisando");
+                list.SelectedIndex = 0;
+                panel.Controls.Add(label, 0, 0);
+                panel.Controls.Add(list, 0, 1);
+                form.Controls.Add(panel);
+                string choice = "";
+                list.KeyDown += delegate(object sender, KeyEventArgs e)
+                {
+                    if (e.KeyCode == Keys.Escape) { e.SuppressKeyPress = true; form.Close(); return; }
+                    if (e.KeyCode != Keys.Enter || list.SelectedItem == null) return;
+                    e.SuppressKeyPress = true;
+                    choice = list.SelectedItem.ToString();
+                    form.Close();
+                };
+                form.Shown += delegate { list.Focus(); };
+                form.ShowDialog(this);
+                if (choice == "Continuar pesquisando") StartMainSearch();
+                else if (choice == "Voltar ao menu principal")
+                {
+                    ShowHomeOnly();
+                    SetStatus("Pressione Alt para ir para o menu principal.");
+                }
+                else if (resultsList != null) resultsList.Focus();
+            }
         }
 
         private MenuStrip BuildMainMenu()
@@ -2674,6 +2728,53 @@ namespace YoutubeMusicLightAccessible
             PlayTrack(track);
         }
 
+        private string GetPlaybackRequestKey(Track track, string url)
+        {
+            if (track != null && !String.IsNullOrWhiteSpace(track.VideoId)) return "video:" + track.VideoId;
+            return "url:" + (url ?? "").Trim();
+        }
+
+        private bool BeginPlaybackRequest(Track track, string url, out int requestId)
+        {
+            string key = GetPlaybackRequestKey(track, url);
+            lock (playbackRequestLock)
+            {
+                if (String.Equals(playbackRequestKey, key, StringComparison.OrdinalIgnoreCase) &&
+                    (playbackRequestPending || playbackStarted))
+                {
+                    requestId = playbackRequestSerial;
+                    return false;
+                }
+                requestId = ++playbackRequestSerial;
+                playbackRequestKey = key;
+                playbackRequestPending = true;
+                return true;
+            }
+        }
+
+        private bool IsCurrentPlaybackRequest(int requestId)
+        {
+            lock (playbackRequestLock) return requestId == playbackRequestSerial;
+        }
+
+        private void CompletePlaybackRequest(int requestId)
+        {
+            lock (playbackRequestLock)
+            {
+                if (requestId == playbackRequestSerial) playbackRequestPending = false;
+            }
+        }
+
+        private void CancelPendingPlaybackRequests()
+        {
+            lock (playbackRequestLock)
+            {
+                playbackRequestSerial++;
+                playbackRequestPending = false;
+                playbackRequestKey = "";
+            }
+        }
+
         private void LoadYoutubePlaylist(Track track)
         {
             string url = TrackUrl(track);
@@ -2696,9 +2797,17 @@ namespace YoutubeMusicLightAccessible
                 url = "https://music.youtube.com/watch?v=" + track.VideoId;
             if (String.IsNullOrEmpty(url)) { SetStatus("Este item não tem URL tocável."); return; }
 
+            int requestId;
+            if (!BeginPlaybackRequest(track, url, out requestId))
+            {
+                AnnounceStatus("Esta música já está sendo preparada ou reproduzida.");
+                return;
+            }
+            StopPlayback(false);
+
             if (File.Exists(url))
             {
-                PlayLocalMediaTrack(track, url);
+                PlayLocalMediaTrack(track, url, requestId);
                 return;
             }
 
@@ -2716,11 +2825,15 @@ namespace YoutubeMusicLightAccessible
                 {
                     EnsureMpvAvailable();
                     string mediaPath = preferTemporaryAudio ? ResolveLocalAudioPath(url, track.VideoId) : ResolveStreamUrl(url);
+                    if (!IsCurrentPlaybackRequest(requestId)) return;
                     Invoke(new Action(delegate { StopPlayback(false); }));
+                    if (!IsCurrentPlaybackRequest(requestId)) return;
                     StartMpvPlayback(mediaPath);
                     BeginInvoke(new Action(delegate
                     {
+                        if (!IsCurrentPlaybackRequest(requestId)) return;
                         currentTempAudioPath = "";
+                        CompletePlaybackRequest(requestId);
                         MarkPlaybackStarted(track, url);
                         PrefetchNext();
                     }));
@@ -2735,11 +2848,15 @@ namespace YoutubeMusicLightAccessible
                 {
                     EnsureFfplayAvailable();
                     string mediaPath = preferTemporaryAudio ? ResolveLocalAudioPath(url, track.VideoId) : ResolveStreamUrl(url);
+                    if (!IsCurrentPlaybackRequest(requestId)) return;
                     Invoke(new Action(delegate { StopPlayback(false); }));
+                    if (!IsCurrentPlaybackRequest(requestId)) return;
                     StartFfplayPlayback(mediaPath);
                     BeginInvoke(new Action(delegate
                     {
+                        if (!IsCurrentPlaybackRequest(requestId)) return;
                         currentTempAudioPath = "";
+                        CompletePlaybackRequest(requestId);
                         MarkPlaybackStarted(track, url);
                         PrefetchNext();
                     }));
@@ -2754,11 +2871,15 @@ namespace YoutubeMusicLightAccessible
                 {
                     EnsureVlcAvailable();
                     string mediaPath = preferTemporaryAudio ? ResolveLocalAudioPath(url, track.VideoId) : ResolveStreamUrl(url);
+                    if (!IsCurrentPlaybackRequest(requestId)) return;
                     Invoke(new Action(delegate { StopPlayback(false); }));
+                    if (!IsCurrentPlaybackRequest(requestId)) return;
                     StartVlcPlayback(mediaPath);
                     BeginInvoke(new Action(delegate
                     {
+                        if (!IsCurrentPlaybackRequest(requestId)) return;
                         currentTempAudioPath = "";
+                        CompletePlaybackRequest(requestId);
                         MarkPlaybackStarted(track, url);
                         PrefetchNext();
                     }));
@@ -2772,8 +2893,10 @@ namespace YoutubeMusicLightAccessible
                 try
                 {
                     string audioPath = ResolveLocalAudioPath(url, track.VideoId);
+                    if (!IsCurrentPlaybackRequest(requestId)) return;
                     BeginInvoke(new Action(delegate
                     {
+                        if (!IsCurrentPlaybackRequest(requestId)) return;
                         StopPlayback(false);
                         if (preferTemporaryAudio)
                         {
@@ -2781,6 +2904,7 @@ namespace YoutubeMusicLightAccessible
                             {
                                 StartMpvPlayback(audioPath);
                                 currentTempAudioPath = IsTemporaryAudioFile(audioPath) ? audioPath : "";
+                                CompletePlaybackRequest(requestId);
                                 MarkPlaybackStarted(track, url);
                                 PrefetchNext();
                                 return;
@@ -2793,6 +2917,7 @@ namespace YoutubeMusicLightAccessible
                         }
                         if (!EnsureInternalPlayer())
                         {
+                            CompletePlaybackRequest(requestId);
                             SetProgress(false);
                             AnnounceStatus("Não consegui tocar esta música. Detalhe: " + mpvEx + " / " + vlcEx + " / " + internalEx + " / Windows Media Player interno não disponível.");
                             return;
@@ -2803,6 +2928,7 @@ namespace YoutubeMusicLightAccessible
                         usingVlc = false;
                         usingMpv = false;
                         currentTempAudioPath = IsTemporaryAudioFile(audioPath) ? audioPath : "";
+                        CompletePlaybackRequest(requestId);
                         MarkPlaybackStarted(track, url);
                         PrefetchNext();
                     }));
@@ -2811,6 +2937,8 @@ namespace YoutubeMusicLightAccessible
                 {
                     BeginInvoke(new Action(delegate
                     {
+                        if (!IsCurrentPlaybackRequest(requestId)) return;
+                        CompletePlaybackRequest(requestId);
                         SetProgress(false);
                         AnnounceStatus("Não consegui tocar esta música. Detalhe: " + ffplayEx + " / " + mpvEx + " / " + vlcEx + " / " + ShortError(fallbackEx.Message));
                     }));
@@ -2845,7 +2973,7 @@ namespace YoutubeMusicLightAccessible
             }
         }
 
-        private void PlayLocalMediaTrack(Track track, string path)
+        private void PlayLocalMediaTrack(Track track, string path, int requestId)
         {
             AddToLocalHistory(track);
             SetProgress(true);
@@ -2855,11 +2983,15 @@ namespace YoutubeMusicLightAccessible
                 try
                 {
                     EnsureFfplayAvailable();
+                    if (!IsCurrentPlaybackRequest(requestId)) return;
                     Invoke(new Action(delegate { StopPlayback(false); }));
+                    if (!IsCurrentPlaybackRequest(requestId)) return;
                     StartFfplayPlayback(path);
                     BeginInvoke(new Action(delegate
                     {
+                        if (!IsCurrentPlaybackRequest(requestId)) return;
                         currentTempAudioPath = "";
+                        CompletePlaybackRequest(requestId);
                         MarkPlaybackStarted(track, path);
                         PrefetchNext();
                     }));
@@ -2869,11 +3001,15 @@ namespace YoutubeMusicLightAccessible
                     try
                     {
                         EnsureMpvAvailable();
+                        if (!IsCurrentPlaybackRequest(requestId)) return;
                         Invoke(new Action(delegate { StopPlayback(false); }));
+                        if (!IsCurrentPlaybackRequest(requestId)) return;
                         StartMpvPlayback(path);
                         BeginInvoke(new Action(delegate
                         {
+                            if (!IsCurrentPlaybackRequest(requestId)) return;
                             currentTempAudioPath = "";
+                            CompletePlaybackRequest(requestId);
                             MarkPlaybackStarted(track, path);
                             PrefetchNext();
                         }));
@@ -2883,11 +3019,15 @@ namespace YoutubeMusicLightAccessible
                         try
                         {
                             EnsureVlcAvailable();
+                            if (!IsCurrentPlaybackRequest(requestId)) return;
                             Invoke(new Action(delegate { StopPlayback(false); }));
+                            if (!IsCurrentPlaybackRequest(requestId)) return;
                             StartVlcPlayback(path);
                             BeginInvoke(new Action(delegate
                             {
+                                if (!IsCurrentPlaybackRequest(requestId)) return;
                                 currentTempAudioPath = "";
+                                CompletePlaybackRequest(requestId);
                                 MarkPlaybackStarted(track, path);
                                 PrefetchNext();
                             }));
@@ -2898,9 +3038,11 @@ namespace YoutubeMusicLightAccessible
                             {
                                 BeginInvoke(new Action(delegate
                                 {
+                                    if (!IsCurrentPlaybackRequest(requestId)) return;
                                     StopPlayback(false);
                                     if (!EnsureInternalPlayer())
                                     {
+                                        CompletePlaybackRequest(requestId);
                                         SetProgress(false);
                                         AnnounceStatus("Não consegui tocar o arquivo local. Detalhe: " + ShortError(ffplayEx.Message) + " / " + ShortError(mpvEx.Message) + " / " + ShortError(vlcEx.Message) + " / Windows Media Player interno não disponível.");
                                         return;
@@ -2912,6 +3054,7 @@ namespace YoutubeMusicLightAccessible
                                     usingMpv = false;
                                     usingFfplay = false;
                                     currentTempAudioPath = "";
+                                    CompletePlaybackRequest(requestId);
                                     MarkPlaybackStarted(track, path);
                                     PrefetchNext();
                                 }));
@@ -2920,6 +3063,8 @@ namespace YoutubeMusicLightAccessible
                             {
                                 BeginInvoke(new Action(delegate
                                 {
+                                    if (!IsCurrentPlaybackRequest(requestId)) return;
+                                    CompletePlaybackRequest(requestId);
                                     SetProgress(false);
                                     AnnounceStatus("Não consegui tocar o arquivo local. Detalhe: " + ShortError(ffplayEx.Message) + " / " + ShortError(mpvEx.Message) + " / " + ShortError(vlcEx.Message) + " / " + ShortError(ex.Message));
                                 }));
@@ -3219,6 +3364,7 @@ namespace YoutubeMusicLightAccessible
             }
             currentMediaPath = mediaPath;
             ApplySelectedOutputDeviceToVlc();
+            SendVlcCommand("{\"command\":\"set-volume\",\"volume\":" + savedVolume.ToString(System.Globalization.CultureInfo.InvariantCulture) + "}", false);
             StartPlayerMonitorIfNeeded(mediaPath);
         }
 
@@ -3238,7 +3384,8 @@ namespace YoutubeMusicLightAccessible
         private void StartFfplayPlayback(string mediaPath)
         {
             string fileName = GetFfplayPath();
-            var psi = new ProcessStartInfo(fileName, "-nodisp -autoexit -hide_banner -loglevel error " + "\"" + EscapeArg(mediaPath) + "\"");
+            int initialVolume = Math.Max(0, Math.Min(100, savedVolume));
+            var psi = new ProcessStartInfo(fileName, "-nodisp -autoexit -hide_banner -loglevel error -volume " + initialVolume.ToString(System.Globalization.CultureInfo.InvariantCulture) + " " + "\"" + EscapeArg(mediaPath) + "\"");
             psi.UseShellExecute = false;
             psi.RedirectStandardOutput = true;
             psi.RedirectStandardError = true;
@@ -3357,6 +3504,7 @@ namespace YoutubeMusicLightAccessible
                     return;
                 }
                 SendPlayerMonitorCommand("{\"command\":\"set-device\",\"id\":\"" + JsonEscape(selectedMonitorOutputDeviceId) + "\"}", true);
+                SendPlayerMonitorCommand("{\"command\":\"set-volume\",\"volume\":" + playerMonitorVolume.ToString(System.Globalization.CultureInfo.InvariantCulture) + "}", true);
             }
             catch { StopPlayerMonitor(); }
         }
@@ -3441,6 +3589,7 @@ namespace YoutubeMusicLightAccessible
                 AudioDevice selected = (AudioDevice)list.SelectedItem;
                 if (usingVlc) SendVlcCommand("{\"command\":\"set-device\",\"id\":\"" + JsonEscape(selected.Id) + "\"}", true);
                 else if (usingMpv) SendMpvCommand("{\"command\":\"set-device\",\"id\":\"" + JsonEscape(selected.Id) + "\"}");
+                ApplyVideoVolume(savedVolume);
                 selectedOutputDeviceId = selected.Id;
                 selectedOutputDeviceName = selected.ToString();
                 SaveConfig();
@@ -3631,6 +3780,7 @@ namespace YoutubeMusicLightAccessible
             }
             currentMediaPath = mediaPath;
             ApplySelectedOutputDeviceToMpv();
+            SendMpvCommand("{\"command\":\"set-volume\",\"volume\":" + savedVolume.ToString(System.Globalization.CultureInfo.InvariantCulture) + "}");
             StartPlayerMonitorIfNeeded(mediaPath);
         }
 
@@ -3738,6 +3888,7 @@ namespace YoutubeMusicLightAccessible
 
         private void StopPlayback()
         {
+            CancelPendingPlaybackRequests();
             StopPlayback(true);
         }
 
@@ -3750,6 +3901,8 @@ namespace YoutubeMusicLightAccessible
                 playbackPaused = false;
                 StopVlc();
                 StopMpv();
+                StopFfplay();
+                StopPlayerMonitor();
                 if (internalPlayer != null)
                     CallComMethod(GetComProperty(internalPlayer, "controls"), "stop");
             }
@@ -5640,7 +5793,6 @@ namespace YoutubeMusicLightAccessible
 
                     string scriptPath = Path.Combine(tempRoot, "aplicar_atualizacao.bat");
                     string psScriptPath = Path.Combine(tempRoot, "aplicar_atualizacao.ps1");
-                    string exePath = Path.Combine(baseDir, "YoutubeMusicLightAccessible.exe");
                     int currentPid = Process.GetCurrentProcess().Id;
                     string safeZipPath = zipPath.Replace("'", "''");
                     string safeBaseDir = baseDir.Replace("'", "''");
@@ -5656,35 +5808,42 @@ namespace YoutubeMusicLightAccessible
                         "$extract=Join-Path $env:TEMP ('Youtube_Light_Extract_' + [guid]::NewGuid().ToString('N'))\r\n" +
                         "$backupRoot=Join-Path $localDataDir 'updates\\backups'\r\n" +
                         "$backup=Join-Path $backupRoot ('" + AppVersion.Replace("'", "''") + "_' + (Get-Date -Format 'yyyyMMdd_HHmmss'))\r\n" +
+                        "$canonicalExe=Join-Path $base 'YoutubeMusicLightAccessible.exe'\r\n" +
+                        "$stagedExe=Join-Path $base 'YoutubeMusicLightAccessible.novo.exe'\r\n" +
+                        "$backupExe=Join-Path $backup 'YoutubeMusicLightAccessible.exe'\r\n" +
                         "$log=Join-Path $localDataDir 'logs\\ultima_atualizacao.log'\r\n" +
                         "New-Item -ItemType Directory -Path (Split-Path -Parent $log) -Force | Out-Null\r\n" +
                         "New-Item -ItemType Directory -Path $backup -Force | Out-Null\r\n" +
                         "'Iniciando atualização ' + (Get-Date) | Set-Content -LiteralPath $log -Encoding UTF8\r\n" +
-                        "for($i=0; $i -lt 120; $i++){ if(-not (Get-Process -Id $pidToWait -ErrorAction SilentlyContinue)){ break }; Start-Sleep -Milliseconds 500 }\r\n" +
-                        "if(Get-Process -Id $pidToWait -ErrorAction SilentlyContinue){ throw 'O aplicativo antigo não fechou a tempo.' }\r\n" +
+                        "for($i=0; $i -lt 60; $i++){ if(-not (Get-Process -Id $pidToWait -ErrorAction SilentlyContinue)){ break }; Start-Sleep -Milliseconds 500 }\r\n" +
+                        "if(Get-Process -Id $pidToWait -ErrorAction SilentlyContinue){ Stop-Process -Id $pidToWait -Force; Start-Sleep -Milliseconds 500 }\r\n" +
                         "New-Item -ItemType Directory -Path $extract -Force | Out-Null\r\n" +
                         "Expand-Archive -LiteralPath $zip -DestinationPath $extract -Force\r\n" +
                         "$items=@(Get-ChildItem -LiteralPath $extract -Force)\r\n" +
                         "if($items.Count -eq 1 -and $items[0].PSIsContainer){ $source=$items[0].FullName } else { $source=$extract }\r\n" +
-                        "$distributed=@('YoutubeMusicLightAccessible.exe','librarys','licenses','LEIA-ME.txt','Tutorial Youtube-Music-Light.txt','THIRD_PARTY_LICENSES.txt')\r\n" +
-                        "foreach($name in $distributed){ $old=Join-Path $base $name; if(Test-Path -LiteralPath $old){ Move-Item -LiteralPath $old -Destination (Join-Path $backup $name) -Force } }\r\n" +
-                        "$robocopyArgs=@($source,$base,'/E','/R:10','/W:1','/NFL','/NDL','/NJH','/NJS','/NP')\r\n" +
+                        "$newExeSource=Join-Path $source 'YoutubeMusicLightAccessible.exe'\r\n" +
+                        "if(-not (Test-Path -LiteralPath $newExeSource)){ throw 'O pacote novo não contém o executável principal.' }\r\n" +
+                        "Remove-Item -LiteralPath $stagedExe -Force -ErrorAction SilentlyContinue\r\n" +
+                        "Copy-Item -LiteralPath $newExeSource -Destination $stagedExe -Force\r\n" +
+                        "if(Test-Path -LiteralPath $canonicalExe){ Copy-Item -LiteralPath $canonicalExe -Destination $backupExe -Force }\r\n" +
+                        "$robocopyArgs=@($source,$base,'/E','/R:5','/W:1','/XF','YoutubeMusicLightAccessible.exe','/NFL','/NDL','/NJH','/NJS','/NP')\r\n" +
                         "& robocopy @robocopyArgs | Out-File -LiteralPath $log -Encoding UTF8 -Append\r\n" +
                         "$code=$LASTEXITCODE\r\n" +
-                        "if($code -gt 7){ foreach($name in $distributed){ $old=Join-Path $backup $name; if(Test-Path -LiteralPath $old){ Copy-Item -LiteralPath $old -Destination (Join-Path $base $name) -Recurse -Force } }; throw 'Falha ao copiar atualização. Código do robocopy: ' + $code }\r\n" +
+                        "if($code -gt 7){ Remove-Item -LiteralPath $stagedExe -Force -ErrorAction SilentlyContinue; throw 'Falha ao copiar atualização. Código do robocopy: ' + $code }\r\n" +
+                        "try { Remove-Item -LiteralPath $canonicalExe -Force -ErrorAction SilentlyContinue; Move-Item -LiteralPath $stagedExe -Destination $canonicalExe -Force } catch { if(Test-Path -LiteralPath $backupExe){ Copy-Item -LiteralPath $backupExe -Destination $canonicalExe -Force }; throw }\r\n" +
                         "$versionFile=Join-Path $configDir 'versao_local.dat'\r\n" +
                         "New-Item -ItemType Directory -Path $configDir -Force | Out-Null\r\n" +
                         "'" + version.Replace("'", "''") + "' | Set-Content -LiteralPath $versionFile -Encoding UTF8\r\n" +
                         "Get-ChildItem -LiteralPath $backupRoot -Directory -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -Skip 5 | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue\r\n" +
                         "Remove-Item -LiteralPath $extract -Recurse -Force -ErrorAction SilentlyContinue\r\n" +
                         "Remove-Item -LiteralPath $zip -Force -ErrorAction SilentlyContinue\r\n" +
-                        "'Atualização aplicada com sucesso ' + (Get-Date) | Add-Content -LiteralPath $log -Encoding UTF8\r\n";
+                        "'Atualização aplicada com sucesso ' + (Get-Date) | Add-Content -LiteralPath $log -Encoding UTF8\r\n" +
+                        "Start-Process -FilePath $canonicalExe -WorkingDirectory $base\r\n";
                     string script =
                         "@echo off\r\n" +
                         "cd /d \"" + baseDir + "\"\r\n" +
                         "powershell -NoProfile -ExecutionPolicy Bypass -File \"" + psScriptPath + "\"\r\n" +
                         "if errorlevel 1 exit /b 1\r\n" +
-                        "start \"\" \"" + exePath + "\"\r\n" +
                         "del \"%~f0\"\r\n";
                     File.WriteAllText(psScriptPath, psUpdate, new UTF8Encoding(false));
                     File.WriteAllText(scriptPath, script, new UTF8Encoding(false));
@@ -8143,6 +8302,7 @@ namespace YoutubeMusicLightAccessible
         {
             bool inTextBox = ActiveControl is TextBox;
             bool inResults = IsResultsHotkeyContext();
+            bool resultsVisible = resultsPanel != null && resultsList != null && resultsPanel.Visible && resultsList.Visible;
             bool inPlayer = ActiveControl == playerList;
 
             if (keyData == Keys.Menu)
@@ -8152,7 +8312,13 @@ namespace YoutubeMusicLightAccessible
             }
             if (keyData == Keys.Escape)
             {
-                RequestExit();
+                if (inPlayer) ClosePlayerAndReturnToResults();
+                else if (resultsVisible) ConfirmLeaveResults();
+                else
+                {
+                    ShowHomeOnly();
+                    SetStatus("Pressione Alt para ir para o menu principal.");
+                }
                 return true;
             }
 
@@ -8182,12 +8348,6 @@ namespace YoutubeMusicLightAccessible
             {
                 if (resultsList.ContextMenuStrip != null)
                     resultsList.ContextMenuStrip.Show(resultsList, new Point(20, 20));
-                return true;
-            }
-            if (inResults && keyData == Keys.Escape)
-            {
-                ShowHomeOnly();
-                SetStatus("Resultados fechados. Pressione Alt para ir para o menu.");
                 return true;
             }
             if (ActiveControl == feedList && keyData == Keys.Enter)
