@@ -378,6 +378,7 @@ namespace YoutubeMusicLightAccessible
         private bool autoplayEnabled = true;
         private bool playbackPaused = false;
         private bool isExitPromptOpen = false;
+        private bool altUsedInCombination = false;
         private bool localFolderAudioOnly = false;
         private bool repeatOnceConsumed = false;
         private string localFolderPlaybackMode = "normal";
@@ -414,7 +415,7 @@ namespace YoutubeMusicLightAccessible
         private const uint EVENT_OBJECT_VALUECHANGE = 0x800E;
         private const int OBJID_CLIENT = -4;
         private const int CHILDID_SELF = 0;
-        private const string AppVersion = "3.13.5";
+        private const string AppVersion = "3.13.6";
         private const string AppUpdatedAt = "29/08/2026";
         private const string GitHubOwner = "diegovinicius95891-netizen";
         private const string GitHubRepo = "Youtube-Light";
@@ -430,6 +431,7 @@ namespace YoutubeMusicLightAccessible
         private const string GetPipUrl = "https://bootstrap.pypa.io/get-pip.py";
         private const int WM_KEYDOWN = 0x0100;
         private const int WM_SYSKEYDOWN = 0x0104;
+        private const int WM_SYSKEYUP = 0x0105;
 
         [DllImport("user32.dll")]
         private static extern void NotifyWinEvent(uint eventType, IntPtr hwnd, int idObject, int idChild);
@@ -503,20 +505,26 @@ namespace YoutubeMusicLightAccessible
 
         protected override void WndProc(ref Message m)
         {
-            if (m.Msg == WM_SYSKEYDOWN && m.WParam.ToInt32() == (int)Keys.Menu)
-            {
-                ShowAccessibleAltMenu();
-                return;
-            }
             base.WndProc(ref m);
         }
 
         public bool PreFilterMessage(ref Message m)
         {
             if (!IsHandleCreated || !ContainsFocus) return false;
-            if ((m.Msg == WM_SYSKEYDOWN || m.Msg == WM_KEYDOWN) && m.WParam.ToInt32() == (int)Keys.Menu)
+            if (m.Msg != WM_SYSKEYDOWN && m.Msg != WM_KEYDOWN && m.Msg != WM_SYSKEYUP) return false;
+            int keyCode = unchecked((int)m.WParam.ToInt64());
+            if ((m.Msg == WM_SYSKEYDOWN || m.Msg == WM_KEYDOWN) && keyCode == (int)Keys.Menu)
             {
-                ShowAccessibleAltMenu();
+                altUsedInCombination = false;
+                return true;
+            }
+            if (m.Msg == WM_SYSKEYDOWN && keyCode != (int)Keys.Menu)
+                altUsedInCombination = true;
+            if (m.Msg == WM_SYSKEYUP && keyCode == (int)Keys.Menu)
+            {
+                bool usedInCombination = altUsedInCombination;
+                altUsedInCombination = false;
+                if (!usedInCombination && !IsResultsListFocused()) ShowAccessibleAltMenu();
                 return true;
             }
             return false;
@@ -736,17 +744,15 @@ namespace YoutubeMusicLightAccessible
 
         private void ConfirmLeaveResults()
         {
-            StopPlayback();
-            if (playerGroup != null) { playerGroup.Visible = false; playerGroup.TabStop = false; }
-            if (playerList != null) playerList.TabStop = false;
             using (var form = new Form())
             {
                 form.Text = "Resultados da pesquisa";
-                form.Size = new Size(560, 260);
+                form.Size = new Size(620, 300);
                 form.StartPosition = FormStartPosition.CenterParent;
                 var panel = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(12), RowCount = 2, ColumnCount = 1 };
-                var label = new Label { AutoSize = true, Text = "Você deseja voltar ao menu principal ou continuar pesquisando mais?", AccessibleName = "Você deseja voltar ao menu principal ou continuar pesquisando mais?" };
+                var label = new Label { AutoSize = true, Text = "O que você deseja fazer?", AccessibleName = "O que você deseja fazer?" };
                 var list = new ListBox { Dock = DockStyle.Fill, AccessibleName = "Escolha o que deseja fazer" };
+                list.Items.Add("Continuar na lista de resultados");
                 list.Items.Add("Voltar ao menu principal");
                 list.Items.Add("Continuar pesquisando");
                 list.SelectedIndex = 0;
@@ -764,9 +770,18 @@ namespace YoutubeMusicLightAccessible
                 };
                 form.Shown += delegate { list.Focus(); };
                 form.ShowDialog(this);
-                if (choice == "Continuar pesquisando") StartMainSearch();
+                if (choice == "Continuar pesquisando")
+                {
+                    StopPlayback();
+                    if (playerGroup != null) { playerGroup.Visible = false; playerGroup.TabStop = false; }
+                    if (playerList != null) playerList.TabStop = false;
+                    StartMainSearch();
+                }
                 else if (choice == "Voltar ao menu principal")
                 {
+                    StopPlayback();
+                    if (playerGroup != null) { playerGroup.Visible = false; playerGroup.TabStop = false; }
+                    if (playerList != null) playerList.TabStop = false;
                     ShowHomeOnly();
                     SetStatus("Pressione Alt para ir para o menu principal.");
                 }
@@ -1000,7 +1015,7 @@ namespace YoutubeMusicLightAccessible
             else if (item == "Abrir pasta de downloads") Process.Start(GetDownloadDir());
             else if (item == "Dar ideias") OpenIdeasEmail();
             else if (item == "Sobre o aplicativo") ShowAbout();
-            else if (item == "Sair") Close();
+            else if (item == "Sair") RequestExit();
             else if (item == "Ajuda") ShowHelp();
             else if (item == "Sobre o aplicativo") ShowAbout();
         }
@@ -1331,7 +1346,7 @@ namespace YoutubeMusicLightAccessible
             else if (item == "Dar ideias") OpenIdeasEmail();
             else if (item == "Sobre o aplicativo") ShowAbout();
             else if (item == "Ajuda") ShowHelp();
-            else if (item == "Sair") Close();
+            else if (item == "Sair") RequestExit();
         }
 
         private void SearchBoxKeyDown(object sender, KeyEventArgs e)
@@ -1345,6 +1360,12 @@ namespace YoutubeMusicLightAccessible
 
         private void ResultsListKeyDown(object sender, KeyEventArgs e)
         {
+            if (e.KeyCode == Keys.Escape)
+            {
+                e.SuppressKeyPress = true;
+                ConfirmLeaveResults();
+                return;
+            }
             if (e.KeyCode == Keys.Enter)
             {
                 e.SuppressKeyPress = true;
@@ -3503,7 +3524,8 @@ namespace YoutubeMusicLightAccessible
                     StopPlayerMonitor();
                     return;
                 }
-                SendPlayerMonitorCommand("{\"command\":\"set-device\",\"id\":\"" + JsonEscape(selectedMonitorOutputDeviceId) + "\"}", true);
+                string monitorDeviceId = ResolveConfiguredPlayerDeviceId(GetActiveAudioDevices(), selectedMonitorOutputDeviceId, selectedMonitorOutputDeviceName);
+                SendPlayerMonitorCommand("{\"command\":\"set-device\",\"id\":\"" + JsonEscape(monitorDeviceId) + "\"}", true);
                 SendPlayerMonitorCommand("{\"command\":\"set-volume\",\"volume\":" + playerMonitorVolume.ToString(System.Globalization.CultureInfo.InvariantCulture) + "}", true);
             }
             catch { StopPlayerMonitor(); }
@@ -3558,12 +3580,7 @@ namespace YoutubeMusicLightAccessible
 
         private void ChooseOutputDevice()
         {
-            if (!usingVlc && !usingMpv)
-            {
-                AnnounceStatus("Para listar alto-falantes e fones, toque um vídeo primeiro.");
-                return;
-            }
-            List<AudioDevice> devices = GetActiveAudioDevices();
+            List<AudioDevice> devices = GetConfigurableOutputDevices();
             if (devices.Count == 0)
             {
                 AnnounceStatus("Não encontrei dispositivos de saída no player.");
@@ -3580,6 +3597,8 @@ namespace YoutubeMusicLightAccessible
                 list.AccessibleDescription = "Use as setas para escolher e pressione Enter.";
                 foreach (AudioDevice device in devices) list.Items.Add(device);
                 int selectedIndex = devices.FindIndex(d => String.Equals(d.Id, selectedOutputDeviceId, StringComparison.OrdinalIgnoreCase));
+                if (selectedIndex < 0 && !String.IsNullOrWhiteSpace(selectedOutputDeviceName))
+                    selectedIndex = devices.FindIndex(d => String.Equals(CleanDeviceName(d.Name), CleanDeviceName(selectedOutputDeviceName), StringComparison.OrdinalIgnoreCase));
                 list.SelectedIndex = selectedIndex >= 0 ? selectedIndex : 0;
                 form.Controls.Add(list);
                 var ok = new Button { Text = "Usar este dispositivo", Dock = DockStyle.Bottom, DialogResult = DialogResult.OK };
@@ -3587,11 +3606,11 @@ namespace YoutubeMusicLightAccessible
                 form.AcceptButton = ok;
                 if (form.ShowDialog(this) != DialogResult.OK || !(list.SelectedItem is AudioDevice)) return;
                 AudioDevice selected = (AudioDevice)list.SelectedItem;
-                if (usingVlc) SendVlcCommand("{\"command\":\"set-device\",\"id\":\"" + JsonEscape(selected.Id) + "\"}", true);
-                else if (usingMpv) SendMpvCommand("{\"command\":\"set-device\",\"id\":\"" + JsonEscape(selected.Id) + "\"}");
-                ApplyVideoVolume(savedVolume);
                 selectedOutputDeviceId = selected.Id;
                 selectedOutputDeviceName = selected.ToString();
+                if (usingVlc) ApplySelectedOutputDeviceToVlc();
+                else if (usingMpv) ApplySelectedOutputDeviceToMpv();
+                if (usingVlc || usingMpv) ApplyVideoVolume(savedVolume);
                 SaveConfig();
                 ApplySelectedOutputDeviceToMicMonitor();
                 AnnounceStatus("Saída de áudio alterada para " + selected + ".");
@@ -3601,14 +3620,22 @@ namespace YoutubeMusicLightAccessible
         private void ApplySelectedOutputDeviceToVlc()
         {
             if (!usingVlc || String.IsNullOrWhiteSpace(selectedOutputDeviceId)) return;
-            try { SendVlcCommand("{\"command\":\"set-device\",\"id\":\"" + JsonEscape(selectedOutputDeviceId) + "\"}", true); }
+            try
+            {
+                string id = ResolveConfiguredPlayerDeviceId(GetVlcAudioDevices(), selectedOutputDeviceId, selectedOutputDeviceName);
+                SendVlcCommand("{\"command\":\"set-device\",\"id\":\"" + JsonEscape(id) + "\"}", true);
+            }
             catch { }
         }
 
         private void ApplySelectedOutputDeviceToMpv()
         {
             if (!usingMpv || String.IsNullOrWhiteSpace(selectedOutputDeviceId)) return;
-            try { SendMpvCommand("{\"command\":\"set-device\",\"id\":\"" + JsonEscape(selectedOutputDeviceId) + "\"}"); }
+            try
+            {
+                string id = ResolveConfiguredPlayerDeviceId(GetMpvAudioDevices(), selectedOutputDeviceId, selectedOutputDeviceName);
+                SendMpvCommand("{\"command\":\"set-device\",\"id\":\"" + JsonEscape(id) + "\"}");
+            }
             catch { }
         }
 
@@ -3616,6 +3643,31 @@ namespace YoutubeMusicLightAccessible
         {
             if (usingMpv) return GetMpvAudioDevices();
             return GetVlcAudioDevices();
+        }
+
+        private List<AudioDevice> GetConfigurableOutputDevices()
+        {
+            try
+            {
+                if (usingVlc || usingMpv)
+                {
+                    List<AudioDevice> active = GetActiveAudioDevices();
+                    if (active.Count > 0) return active;
+                }
+            }
+            catch { }
+            List<AudioDevice> native = GetMicRoutingDevices(false);
+            return native.Count > 0 ? native : GetWindowsAudioDevices();
+        }
+
+        private string ResolveConfiguredPlayerDeviceId(List<AudioDevice> devices, string configuredId, string configuredName)
+        {
+            if (devices == null || devices.Count == 0) return configuredId;
+            AudioDevice match = devices.FirstOrDefault(d => String.Equals(d.Id, configuredId, StringComparison.OrdinalIgnoreCase));
+            string cleanName = CleanDeviceName(configuredName);
+            if (match == null && !String.IsNullOrWhiteSpace(cleanName))
+                match = devices.FirstOrDefault(d => String.Equals(CleanDeviceName(d.Name), cleanName, StringComparison.OrdinalIgnoreCase));
+            return match == null ? configuredId : match.Id;
         }
 
         private List<AudioDevice> GetVlcAudioDevices()
@@ -5007,6 +5059,16 @@ namespace YoutubeMusicLightAccessible
             return resultsPanel != null && resultsList != null && resultsPanel.Visible && resultsList.Visible && resultsList.SelectedIndex >= 0 && resultsList.SelectedIndex < tracks.Count;
         }
 
+        private bool IsResultsViewVisible()
+        {
+            return resultsPanel != null && resultsList != null && resultsPanel.Visible && resultsList.Visible;
+        }
+
+        private bool IsResultsListFocused()
+        {
+            return resultsList != null && resultsList.ContainsFocus;
+        }
+
         private Track SelectedTrack()
         {
             if (resultsList.SelectedIndex < 0 || resultsList.SelectedIndex >= tracks.Count)
@@ -6326,15 +6388,10 @@ namespace YoutubeMusicLightAccessible
 
         private void ChooseMonitorOutputDevice()
         {
-            if (!usingVlc && !usingMpv)
-            {
-                AnnounceStatus("Para escolher o fone de retorno, toque um vídeo primeiro.");
-                return;
-            }
-            List<AudioDevice> devices = GetActiveAudioDevices();
+            List<AudioDevice> devices = GetConfigurableOutputDevices();
             if (devices.Count == 0)
             {
-                AnnounceStatus("Não encontrei dispositivos de saída no player.");
+                AnnounceStatus("Não encontrei fones ou alto-falantes disponíveis para o retorno.");
                 return;
             }
             using (var form = new Form())
@@ -6348,6 +6405,8 @@ namespace YoutubeMusicLightAccessible
                 list.AccessibleDescription = "Escolha o fone ou alto-falante onde você quer ouvir o retorno.";
                 foreach (AudioDevice device in devices) list.Items.Add(device);
                 int selectedIndex = devices.FindIndex(d => String.Equals(d.Id, selectedMonitorOutputDeviceId, StringComparison.OrdinalIgnoreCase));
+                if (selectedIndex < 0 && !String.IsNullOrWhiteSpace(selectedMonitorOutputDeviceName))
+                    selectedIndex = devices.FindIndex(d => String.Equals(CleanDeviceName(d.Name), CleanDeviceName(selectedMonitorOutputDeviceName), StringComparison.OrdinalIgnoreCase));
                 list.SelectedIndex = selectedIndex >= 0 ? selectedIndex : 0;
                 form.Controls.Add(list);
                 var ok = new Button { Text = "Usar este dispositivo", Dock = DockStyle.Bottom, DialogResult = DialogResult.OK };
@@ -6358,8 +6417,8 @@ namespace YoutubeMusicLightAccessible
                 selectedMonitorOutputDeviceId = selected.Id;
                 selectedMonitorOutputDeviceName = selected.ToString();
                 SaveConfig();
-                RestartPlayerMonitor();
-                AnnounceStatus("Retorno do player definido para " + selected + ".");
+                if (usingVlc || usingMpv) RestartPlayerMonitor();
+                AnnounceStatus("Retorno do player definido para " + selected + ". A configuração será usada quando a reprodução começar.");
             }
         }
 
@@ -6918,13 +6977,14 @@ namespace YoutubeMusicLightAccessible
 
                     var label = new Label();
                     label.Dock = DockStyle.Fill;
-                    label.Text = "Deseja fechar o programa? Use as setas para escolher e Enter para confirmar.";
+                    label.Text = "Você deseja mesmo sair?";
+                    label.AccessibleName = "Você deseja mesmo sair? Use as setas para escolher Sim ou Não e pressione Enter.";
                     label.AutoSize = true;
                     panel.Controls.Add(label, 0, 0);
 
                     var list = new ListBox();
                     list.Dock = DockStyle.Fill;
-                    list.Items.Add("Nao");
+                    list.Items.Add("Não");
                     list.Items.Add("Sim");
                     list.SelectedIndex = 0;
                     panel.Controls.Add(list, 0, 1);
@@ -7211,7 +7271,7 @@ namespace YoutubeMusicLightAccessible
                 "Letras puras funcionam só dentro do aplicativo. Atalhos personalizados também são locais e só funcionam quando o Youtube Light está em foco.\r\n" +
                 "Control Direita e Control Esquerda também vão para próxima ou anterior.\r\n" +
                 "No player, Aplicação ou Shift F10 abre ações da música atual, incluindo curtir, baixar, copiar link e trocar dispositivo de saída.\r\n" +
-                "Em Configurações, Áudio e transmissão permite escolher saída principal para transmissão, retorno do player no fone, microfone, mute do microfone, volume do microfone e modo de escuta. Para TeamTalk, use saída principal na Line e retorno do player no fone.\r\n" +
+                "Para transmitir no TeamTalk ou em outros aplicativos, é necessário ter a Line 1 instalada. Em Configurações, Áudio e transmissão, escolha Line 1 como saída principal, seu fone como retorno do player, seu microfone como entrada e Line 1 como saída do microfone. Ligue o retorno do player, ligue o microfone e desmute-o para transmitir também sua voz. Tudo pode ser configurado mesmo sem vídeo tocando.\r\n" +
                 "Pressione Alt para abrir o menu principal acessível. Ele abre com tudo recolhido. Use seta para cima e para baixo para navegar. Enter ou seta direita expande ou executa. Seta esquerda recolhe.\r\n" +
                 "No menu Busca, você pode pesquisar vídeos do YouTube com filtro de vídeos, músicas, playlists ou canais, e também pesquisar últimos vídeos ou músicas por país.\r\n" +
                 "No menu Player do PC, você pode abrir uma pasta de mídia. O app tenta tocar MP3, WAV, FLAC, M4A, OGG, OPUS, WMA, MP4, MKV, AVI, MOV, WEBM e outros formatos pelo VLC portátil.\r\n" +
@@ -8302,12 +8362,17 @@ namespace YoutubeMusicLightAccessible
         {
             bool inTextBox = ActiveControl is TextBox;
             bool inResults = IsResultsHotkeyContext();
-            bool resultsVisible = resultsPanel != null && resultsList != null && resultsPanel.Visible && resultsList.Visible;
+            bool resultsVisible = IsResultsViewVisible();
             bool inPlayer = ActiveControl == playerList;
 
+            if (keyData == (Keys.Alt | Keys.F4))
+            {
+                Close();
+                return true;
+            }
             if (keyData == Keys.Menu)
             {
-                ShowAccessibleAltMenu();
+                if (!IsResultsListFocused()) ShowAccessibleAltMenu();
                 return true;
             }
             if (keyData == Keys.Escape)
@@ -8316,8 +8381,7 @@ namespace YoutubeMusicLightAccessible
                 else if (resultsVisible) ConfirmLeaveResults();
                 else
                 {
-                    ShowHomeOnly();
-                    SetStatus("Pressione Alt para ir para o menu principal.");
+                    RequestExit();
                 }
                 return true;
             }

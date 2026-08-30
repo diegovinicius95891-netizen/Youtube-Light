@@ -154,7 +154,13 @@ Na seção Player, a tecla Aplicação ou Shift F10 também abre ações da mús
 
 O dispositivo de saída escolhido fica salvo e continua sendo usado quando trocar de vídeo.
 
-Para transmitir no TeamTalk usando Line 1 e ainda ouvir no fone, deixe a saída principal ou transmissão na Line 1. Depois ligue Retorno do player no fone e escolha seu fone ou alto-falante como dispositivo do retorno.
+Para transmitir o áudio do Youtube Light no TeamTalk ou em outros aplicativos, é necessário ter a Line 1 instalada no Windows.
+
+Pressione Alt, expanda o menu Configurações e abra Áudio e transmissão. Em Saída principal ou transmissão, escolha Line 1. Em Dispositivo do retorno do player, escolha o fone ou alto-falante onde você escuta normalmente. Depois ligue Retorno do player no fone.
+
+Em Dispositivo de entrada, escolha o microfone que você usa. Em Saída do microfone para transmissão, escolha Line 1 se quiser enviar também sua voz para a transmissão. Ligue Microfone no player e deixe Microfone mutado como não para transmitir o microfone.
+
+Com essa configuração, a música ou o vídeo e o microfone são enviados para a Line 1, enquanto o retorno do player continua no seu fone ou alto-falante. As saídas e o retorno podem ser configurados mesmo sem nenhum vídeo tocando.
 
 11. Baixar músicas e links
 
@@ -183,6 +189,8 @@ Você pode ligar ou desligar anúncios automáticos do player, rádio infinita, 
 As notificações de vídeos novos verificam a página de inscrições da conta logada. Quando houver novidade, o aplicativo pode falar título, canal, duração e quando foi postado, se o YouTube entregar essas informações.
 
 Em Áudio e transmissão, você pode configurar saída principal ou transmissão, retorno do player no fone, dispositivo do retorno, volume do retorno, microfone, microfone ligado ou desligado, microfone mutado ou aberto, volume do microfone e modo de escuta.
+
+Para transmitir pelo TeamTalk, escolha Line 1 como saída principal e também como saída do microfone quando quiser transmitir sua voz. Escolha seu fone ou alto-falante como retorno do player, ligue esse retorno, ligue o microfone no player e desmute o microfone.
 
 Os modos de escuta são: microfone desligado, vídeo e microfone, ou somente microfone.
 
