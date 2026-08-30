@@ -415,7 +415,7 @@ namespace YoutubeMusicLightAccessible
         private const uint EVENT_OBJECT_VALUECHANGE = 0x800E;
         private const int OBJID_CLIENT = -4;
         private const int CHILDID_SELF = 0;
-        private const string AppVersion = "3.13.6";
+        private const string AppVersion = "3.13.7";
         private const string AppUpdatedAt = "29/08/2026";
         private const string GitHubOwner = "diegovinicius95891-netizen";
         private const string GitHubRepo = "Youtube-Light";
@@ -3588,6 +3588,7 @@ namespace YoutubeMusicLightAccessible
             }
             using (var form = new Form())
             {
+                EnableEscapeToClose(form);
                 form.Text = "Trocar saída principal";
                 form.Size = new Size(620, 420);
                 form.StartPosition = FormStartPosition.CenterParent;
@@ -6063,10 +6064,24 @@ namespace YoutubeMusicLightAccessible
             SetStatus("O player interno é o principal. O MPV fica apenas como reserva automática quando disponível.");
         }
 
+        private void EnableEscapeToClose(Form form)
+        {
+            form.KeyPreview = true;
+            form.KeyDown += delegate(object sender, KeyEventArgs e)
+            {
+                if (e.KeyCode != Keys.Escape) return;
+                e.SuppressKeyPress = true;
+                e.Handled = true;
+                form.DialogResult = DialogResult.Cancel;
+                form.Close();
+            };
+        }
+
         private void ShowSettings()
         {
             using (var form = new Form())
             {
+                EnableEscapeToClose(form);
                 form.Text = "Configurações";
                 form.Size = new Size(640, 420);
                 form.StartPosition = FormStartPosition.CenterParent;
@@ -6132,6 +6147,7 @@ namespace YoutubeMusicLightAccessible
         {
             using (var form = new Form())
             {
+                EnableEscapeToClose(form);
                 form.Text = "Atalhos personalizados";
                 form.Size = new Size(720, 420);
                 form.StartPosition = FormStartPosition.CenterParent;
@@ -6190,6 +6206,7 @@ namespace YoutubeMusicLightAccessible
         {
             using (var form = new Form())
             {
+                EnableEscapeToClose(form);
                 form.Text = "Segundos do Alt Shift setas";
                 form.Size = new Size(420, 170);
                 form.StartPosition = FormStartPosition.CenterParent;
@@ -6231,6 +6248,7 @@ namespace YoutubeMusicLightAccessible
         {
             using (var form = new Form())
             {
+                EnableEscapeToClose(form);
                 form.Text = "Intervalo das notificações";
                 form.Size = new Size(440, 170);
                 form.StartPosition = FormStartPosition.CenterParent;
@@ -6273,6 +6291,7 @@ namespace YoutubeMusicLightAccessible
         {
             using (var form = new Form())
             {
+                EnableEscapeToClose(form);
                 form.Text = "Volume boost";
                 form.Size = new Size(440, 170);
                 form.StartPosition = FormStartPosition.CenterParent;
@@ -6315,6 +6334,7 @@ namespace YoutubeMusicLightAccessible
         {
             using (var form = new Form())
             {
+                EnableEscapeToClose(form);
                 form.Text = "Áudio e transmissão";
                 form.Size = new Size(720, 460);
                 form.StartPosition = FormStartPosition.CenterParent;
@@ -6396,6 +6416,7 @@ namespace YoutubeMusicLightAccessible
             }
             using (var form = new Form())
             {
+                EnableEscapeToClose(form);
                 form.Text = "Dispositivo do retorno do player";
                 form.Size = new Size(620, 420);
                 form.StartPosition = FormStartPosition.CenterParent;
@@ -6426,6 +6447,7 @@ namespace YoutubeMusicLightAccessible
         {
             using (var form = new Form())
             {
+                EnableEscapeToClose(form);
                 form.Text = "Volume do retorno do player";
                 form.Size = new Size(440, 170);
                 form.StartPosition = FormStartPosition.CenterParent;
@@ -6462,6 +6484,7 @@ namespace YoutubeMusicLightAccessible
             }
             using (var form = new Form())
             {
+                EnableEscapeToClose(form);
                 form.Text = "Escolher microfone";
                 form.Size = new Size(640, 420);
                 form.StartPosition = FormStartPosition.CenterParent;
@@ -6507,6 +6530,7 @@ namespace YoutubeMusicLightAccessible
             }
             using (var form = new Form())
             {
+                EnableEscapeToClose(form);
                 form.Text = "Saída da captura do microfone";
                 form.Size = new Size(640, 420);
                 form.StartPosition = FormStartPosition.CenterParent;
@@ -6539,6 +6563,7 @@ namespace YoutubeMusicLightAccessible
             }
             using (var form = new Form())
             {
+                EnableEscapeToClose(form);
                 form.Text = "Retorno do microfone no fone";
                 form.Size = new Size(640, 420);
                 form.StartPosition = FormStartPosition.CenterParent;
@@ -6739,6 +6764,7 @@ namespace YoutubeMusicLightAccessible
         {
             using (var form = new Form())
             {
+                EnableEscapeToClose(form);
                 form.Text = "Volume do microfone";
                 form.Size = new Size(420, 170);
                 form.StartPosition = FormStartPosition.CenterParent;
@@ -6769,6 +6795,7 @@ namespace YoutubeMusicLightAccessible
         {
             using (var form = new Form())
             {
+                EnableEscapeToClose(form);
                 form.Text = "Modo de escuta";
                 form.Size = new Size(520, 300);
                 form.StartPosition = FormStartPosition.CenterParent;
@@ -6993,6 +7020,12 @@ namespace YoutubeMusicLightAccessible
                     form.Shown += delegate { list.Focus(); };
                     form.KeyDown += delegate(object sender, KeyEventArgs e)
                     {
+                        if (e.KeyCode == Keys.Up || e.KeyCode == Keys.Down)
+                        {
+                            e.SuppressKeyPress = true;
+                            list.SelectedIndex = e.KeyCode == Keys.Down ? 1 : 0;
+                            return;
+                        }
                         if (e.KeyCode == Keys.Escape)
                         {
                             form.DialogResult = DialogResult.No;
@@ -7273,6 +7306,7 @@ namespace YoutubeMusicLightAccessible
                 "No player, Aplicação ou Shift F10 abre ações da música atual, incluindo curtir, baixar, copiar link e trocar dispositivo de saída.\r\n" +
                 "Para transmitir no TeamTalk ou em outros aplicativos, é necessário ter a Line 1 instalada. Em Configurações, Áudio e transmissão, escolha Line 1 como saída principal, seu fone como retorno do player, seu microfone como entrada e Line 1 como saída do microfone. Ligue o retorno do player, ligue o microfone e desmute-o para transmitir também sua voz. Tudo pode ser configurado mesmo sem vídeo tocando.\r\n" +
                 "Pressione Alt para abrir o menu principal acessível. Ele abre com tudo recolhido. Use seta para cima e para baixo para navegar. Enter ou seta direita expande ou executa. Seta esquerda recolhe.\r\n" +
+                "Nas configurações, Escape fecha somente a tela atual. Na janela principal, Escape ou Alt F4 pergunta se você realmente deseja sair.\r\n" +
                 "No menu Busca, você pode pesquisar vídeos do YouTube com filtro de vídeos, músicas, playlists ou canais, e também pesquisar últimos vídeos ou músicas por país.\r\n" +
                 "No menu Player do PC, você pode abrir uma pasta de mídia. O app tenta tocar MP3, WAV, FLAC, M4A, OGG, OPUS, WMA, MP4, MKV, AVI, MOV, WEBM e outros formatos pelo VLC portátil.\r\n" +
                 "No menu Conversor, você pode converter áudio ou vídeo para outros formatos, e também transformar áudio em vídeo MP4 com fundo preto usando FFmpeg.\r\n" +
@@ -8367,7 +8401,7 @@ namespace YoutubeMusicLightAccessible
 
             if (keyData == (Keys.Alt | Keys.F4))
             {
-                Close();
+                RequestExit();
                 return true;
             }
             if (keyData == Keys.Menu)

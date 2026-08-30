@@ -30,6 +30,10 @@ Use Enter ou seta direita para expandir um menu ou executar uma opção.
 
 Use seta esquerda para recolher.
 
+Nas telas e submenus de configuração, pressione Escape para fechar somente a tela atual e voltar ao menu anterior.
+
+Na janela principal, Escape ou Alt F4 abre a confirmação de saída. Escolha Sim para fechar o Youtube Light ou Não para continuar usando.
+
 4. Feed e modos
 
 Por padrão, o Youtube Light abre no modo YouTube completo.
